@@ -5,6 +5,7 @@ import MapView from '../components/MapView';
 import FeaturedCarousel from '../components/FeaturedCarousel';
 import FilterBar from '../components/FilterBar';
 import { Button } from 'react-bootstrap';
+import Hero from '../components/Hero';
 
 export default function Home() {
   const [artists, setArtists] = useState([]);
@@ -65,6 +66,9 @@ export default function Home() {
 
   return (
     <div>
+      {/* Hero / intro section */}
+      <Hero />
+
       <h2 className="mb-3">Discover Local Artists</h2>
 
       <FeaturedCarousel items={featured} />

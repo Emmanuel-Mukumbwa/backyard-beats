@@ -1,8 +1,67 @@
-/* temporary card highlight when marker clicked */
-.card-highlight {
-  animation: cardFlash 1.4s ease-in-out;
+/* Hero styles for BackyardBeats */
+.bb-hero {
+  --hero-height: 360px;
 }
 
+/* Image column container - framed look (no dark overlay) */
+.hero-image-col .hero-image {
+  height: var(--hero-height);
+  background-size: cover;
+  background-position: center center;
+  position: relative;
+
+  /* framed styling */
+  border-radius: 12px;
+  overflow: hidden; /* ensures rounded corners clip the background */
+  border: 6px solid rgba(16, 128, 62, 0.08); /* subtle greenish border */
+  box-shadow: 0 10px 30px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.04);
+}
+
+/* Hide the old overlay if markup still includes it */
+.hero-image-col .hero-overlay {
+  display: none !important;
+}
+
+/* Content vertical centering */
+.hero-content {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 100%;
+}
+
+/* Hero title and subtitle */
+.hero-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.hero-subtext {
+  font-size: 1rem;
+}
+
+/* Responsive: stack on small screens (image above text) */
+@media (max-width: 767.98px) {
+  .hero-image-col .hero-image {
+    height: 220px;
+  }
+  .hero-title {
+    font-size: 1.25rem;
+  }
+}
+
+/* small highlight animation for artist card when marker clicked
+   Combines a quick animated flash with a subtle fallback box-shadow/transition */
+.card-highlight {
+  /* animation gives a noticeable flash + scale, good for drawing attention */
+  animation: cardFlash 1.4s ease-in-out;
+
+  /* persistent/fallback styling (in case animation doesn't run) */
+  box-shadow: 0 0 0 4px rgba(40, 167, 69, 0.18);
+  transition: box-shadow 0.2s ease-in-out, transform 0.2s ease-in-out;
+}
+
+/* keyframes for the flash effect */
 @keyframes cardFlash {
   0% { box-shadow: 0 0 0 rgba(40,167,69,0.0); transform: scale(1); }
   10% { box-shadow: 0 4px 18px rgba(40,167,69,0.25); transform: scale(1.01); }
