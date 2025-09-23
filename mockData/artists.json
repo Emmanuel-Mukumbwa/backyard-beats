@@ -1,501 +1,128 @@
 [
   {
     "id": 1,
-    "displayName": "Artist 1",
-    "bio": "Bio for Artist 1 - sample local artist from Lilongwe.",
-    "photoUrl": "/assets/images/zed.jpg",
-    "lat": -12.7,
-    "lng": 34.2,
-    "district": "Lilongwe",
-    "genres": [
-      "Gospel"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
-    "hasUpcomingEvent": false,
+    "displayName": "aRelic",
+    "bio": "aRelic — multi-genre Malawian artist. Selected previews and collabs.",
+    "photoUrl": "/assets/images/aRelic.jpg",
+    "lat": -13.0,
+    "lng": 34.0,
+    "district": "Blantyre",
+    "genres": ["Afropop", "Hip-hop"],
+    "mood": ["Upbeat"],
+    "avgRating": 4.6,
+    "hasUpcomingEvent": true,
     "tracks": [
       {
-        "id": 101,
-        "title": "Track 1 (preview)",
-        "previewUrl": "/assets/tracks/zed-morning.wav",
-        "duration": 31
+        "id": 1001,
+        "title": "aRelic ft Kaiser Ten - Bho",
+        "previewUrl": "/public_assets/tracks/aRelic ft Kaiser Ten - Bho.mp3",
+        "duration": 120
+      },
+      {
+        "id": 1002,
+        "title": "aRelic Balling (Prod. Yashie The Kid)",
+        "previewUrl": "/assets/tracks/aRelic_Balling_Prod_Yashie_The_Kid.mp3",
+        "duration": 140
+      },
+      {
+        "id": 1003,
+        "title": "Pon De Beat (aRelic)",
+        "previewUrl": "/assets/tracks/Pon_De_Beat-aRelic_Prod_by_CYROME.mp3",
+        "duration": 125
       }
     ]
   },
+
   {
     "id": 2,
-    "displayName": "Artist 2",
-    "bio": "Bio for Artist 2 - sample local artist from Blantyre.",
-    "photoUrl": "/assets/images/martha.jpg",
-    "lat": -12.4,
-    "lng": 34.4,
-    "district": "Blantyre",
-    "genres": [
-      "Afropop"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
+    "displayName": "PK moss dude 98",
+    "bio": "PK Moss — producer/artist, frequent collaborator with aRelic.",
+    "photoUrl": "/assets/images/PK_moss.jpg",
+    "lat": -13.2,
+    "lng": 34.1,
+    "district": "Lilongwe",
+    "genres": ["Hip-hop"],
+    "mood": ["Laidback"],
+    "avgRating": 4.4,
     "hasUpcomingEvent": false,
     "tracks": [
       {
-        "id": 102,
-        "title": "Track 2 (preview)",
-        "previewUrl": "/assets/tracks/martha-hearts.wav",
-        "duration": 32
+        "id": 2001,
+        "title": "PK moss - You Don't Know Me (ft aRelic)",
+        "previewUrl": "/assets/tracks/PK_moss_You_Don't_Know_Me_ft_aRelic_prodby_K-Driz.mp3",
+        "duration": 130
+      },
+      {
+        "id": 2002,
+        "title": "aRelic x PK Moss Dude 98 x Professor - Subject",
+        "previewUrl": "/assets/tracks/aRelic_x_Pk_Moss_Dude_98_x_Professor_Subject.mp3",
+        "duration": 150
       }
     ]
   },
+
   {
     "id": 3,
-    "displayName": "Artist 3",
-    "bio": "Bio for Artist 3 - sample local artist from Zomba.",
-    "photoUrl": "/assets/images/djkachitu.jpg",
-    "lat": -12.1,
-    "lng": 34.6,
+    "displayName": "Professor",
+    "bio": "Professor — featured artist / collaborator (appears on Subject collab).",
+    "photoUrl": "/assets/images/Professor.jpg",
+    "lat": -13.1,
+    "lng": 34.2,
     "district": "Zomba",
-    "genres": [
-      "Gospel"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
-    "hasUpcomingEvent": true,
+    "genres": ["Hip-hop"],
+    "mood": ["Reflective"],
+    "avgRating": 4.2,
+    "hasUpcomingEvent": false,
     "tracks": [
       {
-        "id": 103,
-        "title": "Track 3 (preview)",
-        "previewUrl": "/assets/tracks/djkachitu-mix.wav",
-        "duration": 33
+        "id": 3001,
+        "title": "aRelic x PK Moss Dude 98 x Professor - Subject",
+        "previewUrl": "/assets/tracks/aRelic_x_Pk_Moss_Dude_98_x_Professor_Subject.mp3",
+        "duration": 150
       }
     ]
   },
+
   {
     "id": 4,
-    "displayName": "Artist 4",
-    "bio": "Bio for Artist 4 - sample local artist from Mangochi.",
-    "photoUrl": "/assets/images/grace.jpg",
-    "lat": -11.8,
-    "lng": 34.8,
+    "displayName": "Kaiser Ten",
+    "bio": "Kaiser Ten — collaborator (featured with aRelic).",
+    "photoUrl": "/assets/images/Kaiser_Ten.jpg",
+    "lat": -12.9,
+    "lng": 34.05,
     "district": "Mangochi",
-    "genres": [
-      "Afropop"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
+    "genres": ["Afropop"],
+    "mood": ["Upbeat"],
+    "avgRating": 4.3,
     "hasUpcomingEvent": false,
     "tracks": [
       {
-        "id": 104,
-        "title": "Track 4 (preview)",
-        "previewUrl": "/assets/tracks/grace-road.wav",
-        "duration": 34
+        "id": 4001,
+        "title": "aRelic ft Kaiser Ten - Bho",
+        "previewUrl": "/assets/tracks/aRelic_ft_Kaiser_Ten_-_Bho.mp3",
+        "duration": 120
       }
     ]
   },
+
   {
     "id": 5,
-    "displayName": "Artist 5",
-    "bio": "Bio for Artist 5 - sample local artist from Mchinji.",
-    "photoUrl": "/assets/images/phiribros.jpg",
-    "lat": -11.5,
-    "lng": 35.0,
-    "district": "Mchinji",
-    "genres": [
-      "Gospel"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
-    "hasUpcomingEvent": false,
-    "tracks": [
-      {
-        "id": 105,
-        "title": "Track 5 (preview)",
-        "previewUrl": "/assets/tracks/phiri-lake.wav",
-        "duration": 35
-      }
-    ]
-  },
-  {
-    "id": 6,
-    "displayName": "Artist 6",
-    "bio": "Bio for Artist 6 - sample local artist from Nkhotakota.",
-    "photoUrl": "/assets/images/samantha.jpg",
-    "lat": -11.2,
-    "lng": 35.2,
-    "district": "Nkhotakota",
-    "genres": [
-      "Afropop"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
-    "hasUpcomingEvent": true,
-    "tracks": [
-      {
-        "id": 106,
-        "title": "Track 6 (preview)",
-        "previewUrl": "/assets/tracks/samantha-cross.wav",
-        "duration": 36
-      }
-    ]
-  },
-  {
-    "id": 7,
-    "displayName": "Artist 7",
-    "bio": "Bio for Artist 7 - sample local artist from Kasungu.",
-    "photoUrl": "/assets/images/nkhome.jpg",
-    "lat": -10.9,
-    "lng": 35.4,
-    "district": "Kasungu",
-    "genres": [
-      "Gospel"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
-    "hasUpcomingEvent": false,
-    "tracks": [
-      {
-        "id": 107,
-        "title": "Track 7 (preview)",
-        "previewUrl": "/assets/tracks/nkhome-river.wav",
-        "duration": 37
-      }
-    ]
-  },
-  {
-    "id": 8,
-    "displayName": "Artist 8",
-    "bio": "Bio for Artist 8 - sample local artist from Karonga.",
-    "photoUrl": "/assets/images/tendai.jpg",
-    "lat": -10.6,
-    "lng": 35.6,
-    "district": "Karonga",
-    "genres": [
-      "Afropop"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
-    "hasUpcomingEvent": false,
-    "tracks": [
-      {
-        "id": 108,
-        "title": "Track 8 (preview)",
-        "previewUrl": "/assets/tracks/tendai-wedding.wav",
-        "duration": 38
-      }
-    ]
-  },
-  {
-    "id": 9,
-    "displayName": "Artist 9",
-    "bio": "Bio for Artist 9 - sample local artist from Likoma.",
-    "photoUrl": "/assets/images/lomwe.jpg",
-    "lat": -10.3,
-    "lng": 35.8,
-    "district": "Likoma",
-    "genres": [
-      "Gospel"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
-    "hasUpcomingEvent": true,
-    "tracks": [
-      {
-        "id": 109,
-        "title": "Track 9 (preview)",
-        "previewUrl": "/assets/tracks/lomwe-north.wav",
-        "duration": 39
-      }
-    ]
-  },
-  {
-    "id": 10,
-    "displayName": "Artist 10",
-    "bio": "Bio for Artist 10 - sample local artist from Nsanje.",
-    "photoUrl": "/assets/images/joyce.jpg",
-    "lat": -10.0,
-    "lng": 36.0,
+    "displayName": "Gazza",
+    "bio": "Gazza (Chosen) — single previews and local hits.",
+    "photoUrl": "/assets/images/Gazza.jpg",
+    "lat": -13.3,
+    "lng": 34.3,
     "district": "Nsanje",
-    "genres": [
-      "Afropop"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
+    "genres": ["Afropop"],
+    "mood": ["Energetic"],
+    "avgRating": 4.0,
     "hasUpcomingEvent": false,
     "tracks": [
       {
-        "id": 110,
-        "title": "Track 10 (preview)",
-        "previewUrl": "/assets/tracks/joyce-island.wav",
-        "duration": 40
-      }
-    ]
-  },
-  {
-    "id": 11,
-    "displayName": "Artist 11",
-    "bio": "Bio for Artist 11 - sample local artist from Mwanza.",
-    "photoUrl": "/assets/images/nsanjechoir.jpg",
-    "lat": -9.7,
-    "lng": 36.2,
-    "district": "Mwanza",
-    "genres": [
-      "Gospel"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
-    "hasUpcomingEvent": false,
-    "tracks": [
-      {
-        "id": 111,
-        "title": "Track 11 (preview)",
-        "previewUrl": "/assets/tracks/nsanje-river.wav",
-        "duration": 41
-      }
-    ]
-  },
-  {
-    "id": 12,
-    "displayName": "Artist 12",
-    "bio": "Bio for Artist 12 - sample local artist from Phalombe.",
-    "photoUrl": "/assets/images/kali.jpg",
-    "lat": -9.4,
-    "lng": 36.4,
-    "district": "Phalombe",
-    "genres": [
-      "Afropop"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
-    "hasUpcomingEvent": true,
-    "tracks": [
-      {
-        "id": 112,
-        "title": "Track 12 (preview)",
-        "previewUrl": "/assets/tracks/kali-dusk.wav",
-        "duration": 42
-      }
-    ]
-  },
-  {
-    "id": 13,
-    "displayName": "Artist 13",
-    "bio": "Bio for Artist 13 - sample local artist from Dedza.",
-    "photoUrl": "/assets/images/elias.jpg",
-    "lat": -9.1,
-    "lng": 36.6,
-    "district": "Dedza",
-    "genres": [
-      "Gospel"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
-    "hasUpcomingEvent": false,
-    "tracks": [
-      {
-        "id": 113,
-        "title": "Track 13 (preview)",
-        "previewUrl": "/assets/tracks/elias-plateau.wav",
-        "duration": 43
-      }
-    ]
-  },
-  {
-    "id": 14,
-    "displayName": "Artist 14",
-    "bio": "Bio for Artist 14 - sample local artist from Chikwawa.",
-    "photoUrl": "/assets/images/bandasisters.jpg",
-    "lat": -8.8,
-    "lng": 36.8,
-    "district": "Chikwawa",
-    "genres": [
-      "Afropop"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
-    "hasUpcomingEvent": false,
-    "tracks": [
-      {
-        "id": 114,
-        "title": "Track 14 (preview)",
-        "previewUrl": "/assets/tracks/banda-morning.wav",
-        "duration": 44
-      }
-    ]
-  },
-  {
-    "id": 15,
-    "displayName": "Artist 15",
-    "bio": "Bio for Artist 15 - sample local artist from Mulanje.",
-    "photoUrl": "/assets/images/chikwawa.jpg",
-    "lat": -8.5,
-    "lng": 37.0,
-    "district": "Mulanje",
-    "genres": [
-      "Gospel"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
-    "hasUpcomingEvent": true,
-    "tracks": [
-      {
-        "id": 115,
-        "title": "Track 15 (preview)",
-        "previewUrl": "/assets/tracks/chikwawa-fertile.wav",
-        "duration": 45
-      }
-    ]
-  },
-  {
-    "id": 16,
-    "displayName": "Artist 16",
-    "bio": "Bio for Artist 16 - sample local artist from Chiradzulu.",
-    "photoUrl": "/assets/images/mulanje.jpg",
-    "lat": -8.2,
-    "lng": 37.2,
-    "district": "Chiradzulu",
-    "genres": [
-      "Afropop"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
-    "hasUpcomingEvent": false,
-    "tracks": [
-      {
-        "id": 116,
-        "title": "Track 16 (preview)",
-        "previewUrl": "/assets/tracks/mulanje-call.wav",
-        "duration": 46
-      }
-    ]
-  },
-  {
-    "id": 17,
-    "displayName": "Artist 17",
-    "bio": "Bio for Artist 17 - sample local artist from Salima.",
-    "photoUrl": "/assets/images/chiradzulu.jpg",
-    "lat": -7.9,
-    "lng": 37.4,
-    "district": "Salima",
-    "genres": [
-      "Gospel"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
-    "hasUpcomingEvent": false,
-    "tracks": [
-      {
-        "id": 117,
-        "title": "Track 17 (preview)",
-        "previewUrl": "/assets/tracks/chiradzulu-campus.wav",
-        "duration": 47
-      }
-    ]
-  },
-  {
-    "id": 18,
-    "displayName": "Artist 18",
-    "bio": "Bio for Artist 18 - sample local artist from Thyolo.",
-    "photoUrl": "/assets/images/nsalu.jpg",
-    "lat": -7.6000000000000005,
-    "lng": 37.6,
-    "district": "Thyolo",
-    "genres": [
-      "Afropop"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
-    "hasUpcomingEvent": true,
-    "tracks": [
-      {
-        "id": 118,
-        "title": "Track 18 (preview)",
-        "previewUrl": "/assets/tracks/nsalu-shore.wav",
-        "duration": 48
-      }
-    ]
-  },
-  {
-    "id": 19,
-    "displayName": "Artist 19",
-    "bio": "Bio for Artist 19 - sample local artist from Balaka.",
-    "photoUrl": "/assets/images/thyolo.jpg",
-    "lat": -7.3,
-    "lng": 37.8,
-    "district": "Balaka",
-    "genres": [
-      "Gospel"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
-    "hasUpcomingEvent": false,
-    "tracks": [
-      {
-        "id": 119,
-        "title": "Track 19 (preview)",
-        "previewUrl": "/assets/tracks/thyolo-tea.wav",
-        "duration": 49
-      }
-    ]
-  },
-  {
-    "id": 20,
-    "displayName": "Artist 20",
-    "bio": "Bio for Artist 20 - sample local artist from Rumphi.",
-    "photoUrl": "/assets/images/balaka.jpg",
-    "lat": -7.0,
-    "lng": 38.0,
-    "district": "Rumphi",
-    "genres": [
-      "Afropop"
-    ],
-    "mood": [
-      "Upbeat"
-    ],
-    "avgRating": 4.5,
-    "hasUpcomingEvent": false,
-    "tracks": [
-      {
-        "id": 120,
-        "title": "Track 20 (preview)",
-        "previewUrl": "/assets/tracks/balaka-market.wav",
-        "duration": 50
+        "id": 5001,
+        "title": "Gazza - They Don't Know Me (or local Gazza track)",
+        "previewUrl": "/assets/tracks/Gazza_They_Don't_Know_Me.mp3",
+        "duration": 135
       }
     ]
   }
