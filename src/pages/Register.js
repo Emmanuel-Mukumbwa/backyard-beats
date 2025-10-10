@@ -6,12 +6,10 @@ import DISTRICTS from '../data/districts';
 import axios from '../api/axiosConfig';
 
 export default function Register() {
-  const [displayName, setDisplayName] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState('artist');
-  const [district, setDistrict] = useState('');
+  const [role, setRole] = useState('fan');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -21,11 +19,11 @@ export default function Register() {
     setLoading(true);
     setError(null);
     try {
-      const payload = { displayName, email, phone, password, role, district };
+      const payload = { username, email, password, role };
       const res = await axios.post('/auth/register', payload);
-      localStorage.setItem('bb_token', res.data.token);
+      // Registration returns user, not token
       localStorage.setItem('bb_user', JSON.stringify(res.data.user));
-      navigate('/');
+      navigate('/login');
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Registration failed');
     } finally {
@@ -40,8 +38,8 @@ export default function Register() {
         {error && <div className="alert alert-danger">{error}</div>}
         <Form onSubmit={submit}>
           <Form.Group className="mb-2">
-            <Form.Label>Display name</Form.Label>
-            <Form.Control value={displayName} onChange={e => setDisplayName(e.target.value)} required />
+            <Form.Label>Username</Form.Label>
+            <Form.Control value={username} onChange={e => setUsername(e.target.value)} required />
           </Form.Group>
 
           <Form.Group className="mb-2">
@@ -50,8 +48,12 @@ export default function Register() {
           </Form.Group>
 
           <Form.Group className="mb-2">
-            <Form.Label>Phone</Form.Label>
-            <Form.Control value={phone} onChange={e => setPhone(e.target.value)} placeholder="099..." />
+            <Form.Label>Role</Form.Label>
+            <Form.Select value={role} onChange={e => setRole(e.target.value)}>
+              <option value="fan">Fan</option>
+              <option value="artist">Artist</option>
+              <option value="admin">Admin</option>
+            </Form.Select>
           </Form.Group>
 
           <Form.Group className="mb-2">

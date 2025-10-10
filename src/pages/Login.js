@@ -5,7 +5,7 @@ import { Form, Button, Card } from 'react-bootstrap';
 import axios from '../api/axiosConfig';
 
 export default function Login() {
-  const [identifier, setIdentifier] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -16,8 +16,7 @@ export default function Login() {
     setLoading(true);
     setError(null);
     try {
-      const res = await axios.post('/auth/login', { identifier, password });
-      // store token + user in localStorage
+      const res = await axios.post('/auth/login', { username, password });
       localStorage.setItem('bb_token', res.data.token);
       localStorage.setItem('bb_user', JSON.stringify(res.data.user));
       navigate('/');
@@ -35,8 +34,8 @@ export default function Login() {
         {error && <div className="alert alert-danger">{error}</div>}
         <Form onSubmit={submit}>
           <Form.Group className="mb-2">
-            <Form.Label>Email or Phone</Form.Label>
-            <Form.Control value={identifier} onChange={e => setIdentifier(e.target.value)} placeholder="you@example.com or 099..." />
+            <Form.Label>Username</Form.Label>
+            <Form.Control value={username} onChange={e => setUsername(e.target.value)} placeholder="Enter your username" />
           </Form.Group>
           <Form.Group className="mb-3">
             <Form.Label>Password</Form.Label>
