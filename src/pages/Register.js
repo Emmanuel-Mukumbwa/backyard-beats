@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card, Form, Button } from 'react-bootstrap';
 import DISTRICTS from '../data/districts';
 import axios from '../api/axiosConfig';
+import ToastMessage from '../components/ToastMessage';
 
 export default function Register() {
   const [username, setUsername] = useState('');
@@ -11,6 +12,7 @@ export default function Register() {
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('fan');
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -23,7 +25,10 @@ export default function Register() {
       const res = await axios.post('/auth/register', payload);
       // Registration returns user, not token
       localStorage.setItem('bb_user', JSON.stringify(res.data.user));
-      navigate('/login');
+      setSuccess('Registration successful! Redirecting to login...');
+      setTimeout(() => {
+        navigate('/login');
+      }, 1200);
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Registration failed');
     } finally {
@@ -35,7 +40,8 @@ export default function Register() {
     <Card className="mx-auto" style={{maxWidth:600}}>
       <Card.Body>
         <h3 className="mb-3">Create an account</h3>
-        {error && <div className="alert alert-danger">{error}</div>}
+  <ToastMessage show={!!error} onClose={() => setError(null)} message={error} variant="danger" />
+  <ToastMessage show={!!success} onClose={() => setSuccess(null)} message={success} variant="success" />
         <Form onSubmit={submit}>
           <Form.Group className="mb-2">
             <Form.Label>Username</Form.Label>
@@ -44,7 +50,7 @@ export default function Register() {
 
           <Form.Group className="mb-2">
             <Form.Label>Email</Form.Label>
-            <Form.Control type="email" value={email} onChange={e => setEmail(e.target.value)} />
+            <Form.Control type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="Enter a valid email" />
           </Form.Group>
 
           <Form.Group className="mb-2">
@@ -75,6 +81,10 @@ export default function Register() {
             <Button variant="success" type="submit" disabled={loading}>{loading ? 'Creating...' : 'Create account'}</Button>
           </div>
         </Form>
+        <div className="mt-2 text-muted small">
+          Already have an account? <a href="/login">Log in</a>.<br />
+          Your email must be unique. If you see an error, try logging in or use a different email.
+        </div>
       </Card.Body>
     </Card>
   );
