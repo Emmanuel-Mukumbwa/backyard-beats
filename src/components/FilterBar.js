@@ -45,3 +45,4 @@ export default function FilterBar({ filters, setFilters, onApply, onClear }) {
     </Form>
   );
 }
+ 

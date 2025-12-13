@@ -8,7 +8,7 @@ const pool = require('../db').pool;
 exports.listArtists = async (req, res, next) => {
   try {
     const params = [];
-    let where = 'WHERE 1=1';
+    let where = 'WHERE 1=1'; 
 
     if (req.query.district) {
       where += ' AND (district_id = ? OR district = ?)';

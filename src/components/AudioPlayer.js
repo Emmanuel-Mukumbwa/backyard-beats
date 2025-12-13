@@ -1,22 +1,55 @@
+// src/components/AudioPlayer.jsx
 import React, { useRef, useState, useEffect } from "react";
+import axios from '../api/axiosConfig';
 
 /**
- * Improved AudioPlayer:
- * - sets audio.src explicitly
- * - listens for loadedmetadata, timeupdate, ended, error
- * - shows helpful error messages and current audio src for debugging
- * - respects user gesture and handles play() promise rejections
+ * AudioPlayer (single-file)
+ * - Resolves preview paths to backend baseURL (axios.defaults.baseURL)
+ * - Inline playback only (no visible backend URL)
+ * - Handles previewUrl / preview_url / file_url shapes
  */
 export default function AudioPlayer({ tracks = [] }) {
   const audioRef = useRef(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(tracks?.[0]?.duration || 0);
+  const [duration, setDuration] = useState(0);
   const [error, setError] = useState(null);
-  const current = tracks[currentIndex];
 
-  // update audio src when track changes
+  const current = tracks && tracks.length > 0 ? tracks[currentIndex] : null;
+
+  const backendBase = (() => {
+    try {
+      return (axios && axios.defaults && axios.defaults.baseURL) || process.env.REACT_APP_API_URL || 'http://localhost:3001';
+    } catch {
+      return process.env.REACT_APP_API_URL || 'http://localhost:3001';
+    }
+  })().replace(/\/$/, '');
+
+  const getPreviewRaw = (t) => {
+    if (!t) return '';
+    return t.previewUrl || t.preview_url || t.file_url || t.preview || '';
+  };
+
+  const resolveToBackend = (raw, trackId) => {
+    if (!raw && !trackId) return '';
+    // if trackId present, prefer predictable backend uploads path for that id if your server stores mapping by preview_url.
+    // We won't add a new streaming endpoint; we'll resolve raw paths.
+    if (trackId && !raw) {
+      // fallback to convention: /uploads/tracks/<maybe-existing-filename> - but if you don't store filename, require preview_url
+      return '';
+    }
+    if (!raw) return '';
+    // absolute URL?
+    if (/^https?:\/\//i.test(raw)) return raw;
+    // starts with slash -> treat as absolute path on backend
+    if (raw.startsWith('/')) return `${backendBase}${raw}`;
+    // starts with 'uploads/'
+    if (raw.startsWith('uploads/')) return `${backendBase}/${raw}`;
+    // otherwise assume it's under uploads/ (filename)
+    return `${backendBase}/uploads/${raw}`;
+  };
+
   useEffect(() => {
     const audio = audioRef.current;
     setError(null);
@@ -24,16 +57,34 @@ export default function AudioPlayer({ tracks = [] }) {
     setDuration(current?.duration || 0);
 
     if (!audio) return;
-    // set crossOrigin if you're loading from another origin and need CORS
-    // audio.crossOrigin = 'anonymous';
 
-    // Use explicit absolute/relative URL from track.previewUrl
-    audio.src = current?.previewUrl || "";
-    // Load metadata to obtain true duration if available
-    audio.load();
-  }, [currentIndex, current?.previewUrl, current?.duration]);
+    const raw = getPreviewRaw(current);
+    const src = resolveToBackend(raw, current?.id);
 
-  // attach audio event listeners
+    if (!src) {
+      audio.removeAttribute('src');
+      audio.load();
+      return;
+    }
+
+    // set crossOrigin if backend origin differs
+    try {
+      const backendOrigin = new URL(backendBase).origin;
+      if (window.location.origin !== backendOrigin) audio.crossOrigin = 'anonymous';
+      else audio.removeAttribute('crossOrigin');
+    } catch (e) {
+      audio.removeAttribute('crossOrigin');
+    }
+
+    audio.src = src;
+    try {
+      audio.load();
+    } catch (e) {
+      console.error('audio.load() error', e);
+      setError('Unable to load audio metadata (possible CORS or invalid URL).');
+    }
+  }, [currentIndex, current, backendBase]);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -42,7 +93,6 @@ export default function AudioPlayer({ tracks = [] }) {
       setProgress(audio.currentTime || 0);
     }
     function onLoaded() {
-      // prefer actual audio.duration if present
       if (audio.duration && !isNaN(audio.duration) && audio.duration !== Infinity) {
         setDuration(Math.floor(audio.duration));
       }
@@ -50,54 +100,49 @@ export default function AudioPlayer({ tracks = [] }) {
     function onEnd() {
       if (currentIndex < tracks.length - 1) {
         setCurrentIndex(i => i + 1);
-        setPlaying(true); // auto-advance then attempt to play next
+        setPlaying(true);
       } else {
         setPlaying(false);
       }
     }
-    function onError(e) {
-      setError("Playback error: unable to load audio (check network/URL/CORS).");
-      console.error("Audio error", e);
+    function onError(ev) {
+      console.error('Audio error event', ev);
+      setError('Playback error: unable to load audio (check network/URL/CORS).');
       setPlaying(false);
     }
 
-    audio.addEventListener("timeupdate", onTime);
-    audio.addEventListener("loadedmetadata", onLoaded);
-    audio.addEventListener("ended", onEnd);
-    audio.addEventListener("error", onError);
+    audio.addEventListener('timeupdate', onTime);
+    audio.addEventListener('loadedmetadata', onLoaded);
+    audio.addEventListener('ended', onEnd);
+    audio.addEventListener('error', onError);
 
     return () => {
-      audio.removeEventListener("timeupdate", onTime);
-      audio.removeEventListener("loadedmetadata", onLoaded);
-      audio.removeEventListener("ended", onEnd);
-      audio.removeEventListener("error", onError);
+      audio.removeEventListener('timeupdate', onTime);
+      audio.removeEventListener('loadedmetadata', onLoaded);
+      audio.removeEventListener('ended', onEnd);
+      audio.removeEventListener('error', onError);
     };
-  }, [audioRef, currentIndex, tracks.length]);
+  }, [audioRef, currentIndex, tracks, current]);
 
-  // play/pause toggle with promise handling
   async function togglePlay() {
     const audio = audioRef.current;
-    if (!audio) return setError("Audio element not ready.");
-
+    if (!audio) return setError('Audio element not ready.');
     setError(null);
     try {
       if (playing) {
         audio.pause();
         setPlaying(false);
       } else {
-        // attempt to play - handle promise rejection
         await audio.play();
         setPlaying(true);
       }
     } catch (err) {
-      // typical reasons: not allowed autoplay (shouldn't happen on user click), CORS, invalid src, network error
-      console.error("play() failed:", err);
-      setError(err?.message || "Unable to play audio.");
+      console.error('play() failed:', err);
+      setError(err?.message || 'Unable to play audio. Check the console for details.');
       setPlaying(false);
     }
   }
 
-  // manual prev/next
   function prev() {
     setError(null);
     setCurrentIndex(i => Math.max(0, i - 1));
@@ -140,8 +185,6 @@ export default function AudioPlayer({ tracks = [] }) {
           </div>
 
           {error && <div className="mt-2 alert alert-danger py-1">{error}</div>}
-          {/* show current audio src for debugging */}
-          <div className="mt-2 small text-muted">src: {current?.previewUrl || "(none)"}</div>
         </div>
 
         <div className="ms-3">
@@ -156,7 +199,6 @@ export default function AudioPlayer({ tracks = [] }) {
         </div>
       </div>
 
-      {/* Hidden native audio element */}
       <audio ref={audioRef} preload="auto" />
     </div>
   );

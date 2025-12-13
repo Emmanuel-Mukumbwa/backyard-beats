@@ -2,11 +2,29 @@
 const express = require('express');
 const router = express.Router();
 const ratingsController = require('../controllers/ratings.controller');
+const auth = require('../middleware/auth.middleware');
 
-// Public: get ratings for artist (e.g. GET /artists/:id/ratings is what frontend uses)
-// This routes file is mounted at /ratings in index.js, but your app also uses /artists/:id/ratings
-// so keep this file focused and import it where needed, or use the artists route to call the controller directly.
+/**
+ * Ratings Routes
+ * 
+ * Supports both:
+ *  - GET  /ratings/artist/:id           → Public (fetch artist ratings)
+ *  - GET  /artists/:id/ratings          → Alias (frontend convenience)
+ *  - POST /ratings/artist/:id           → Auth required (add/update rating)
+ *  - POST /artists/:id/ratings          → Alias (frontend convenience)
+ */
+
+// Public — get all ratings for an artist
 router.get('/artist/:id', ratingsController.getRatingsForArtist);
 
-// Export router
+// Frontend-friendly alias (same behavior)
+router.get('/artists/:id/ratings', ratingsController.getRatingsForArtist);
+
+// Protected — submit or update a rating for an artist
+router.post('/artist/:id', auth, ratingsController.postRatingForArtist);
+
+// Frontend-friendly alias (same behavior)
+router.post('/artists/:id/ratings', auth, ratingsController.postRatingForArtist);
+
 module.exports = router;
+

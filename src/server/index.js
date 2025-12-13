@@ -1,4 +1,3 @@
-// server/index.js
 /**
  * Main server bootstrap
  * - Serves uploaded files at /uploads
@@ -24,6 +23,12 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Simple request logger (helps debug 404/routes)
+app.use((req, res, next) => {
+  console.log(`--> ${req.method} ${req.path}`);
+  next();
+});
+
 // Serve uploaded files (artist photos, track files, etc.) at /uploads/*
 app.use('/uploads', express.static(UPLOADS_DIR, {
   index: false,
@@ -33,15 +38,17 @@ app.use('/uploads', express.static(UPLOADS_DIR, {
 // Routes (make sure these files exist)
 app.use('/artists', require('./routes/artists.routes'));
 app.use('/tracks', require('./routes/tracks.routes'));
-app.use('/events', require('./routes/events.routes'));
+app.use('/events', require('./routes/events.routes'));  
 app.use('/users', require('./routes/users.routes'));
-app.use('/ratings', require('./routes/ratings.routes'));
+app.use('/', require('./routes/ratings.routes'));
 app.use('/districts', require('./routes/districts.routes'));
 app.use('/auth', require('./routes/auth.routes'));
+app.use('/favorites', require('./routes/favorites.routes'));
 
 // artist onboarding router (if present)
 try {
   app.use('/artist', require('./routes/artistOnboard.routes'));
+  console.log('Mounted /artist routes');
 } catch (e) {
   // If the onboarding route isn't present yet, ignore — app will still run
   // eslint-disable-next-line no-console

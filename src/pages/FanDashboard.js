@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Tabs, Tab, Card, Button, ListGroup, Alert, Modal, Form, Row, Col } from 'react-bootstrap';
 import axios from '../api/axiosConfig';
+import FavoriteArtists from '../components/FavoriteArtists';
+import MyEvents from '../components/MyEvents';
 import { AuthContext } from '../context/AuthContext';
 import AudioPlayer from '../components/AudioPlayer';
-
+ 
 export default function FanDashboard() {
   const { user } = useContext(AuthContext);
   const [favorites, setFavorites] = useState([]);
@@ -81,24 +83,12 @@ export default function FanDashboard() {
     <div>
       <h2 className="mb-4">Fan Dashboard</h2>
       <Tabs defaultActiveKey="favorites" id="fan-dashboard-tabs">
-        <Tab eventKey="favorites" title="Favorite Artists">
+       <Tab eventKey="favorites" title="Favorite Artists">
           <div className="mt-3">
             <h5>My Favorite Artists</h5>
-            <Row>
-              {favorites.map(artist => (
-                <Col md={4} key={artist.id} className="mb-3">
-                  <Card>
-                    <Card.Img variant="top" src={artist.photoUrl} />
-                    <Card.Body>
-                      <Card.Title>{artist.displayName}</Card.Title>
-                      <Button variant="outline-danger" size="sm">Unfollow</Button>
-                    </Card.Body>
-                  </Card>
-                </Col>
-              ))}
-            </Row>
+            <FavoriteArtists max={12} />
           </div>
-        </Tab>
+       </Tab>
 
         <Tab eventKey="recent" title="Recently Played">
           <div className="mt-3">
@@ -113,20 +103,8 @@ export default function FanDashboard() {
 
         <Tab eventKey="events" title="My Events">
           <div className="mt-3">
-            <h5>Upcoming Events (RSVP'd)</h5>
-            <ListGroup>
-              {rsvpEvents.map(event => (
-                <ListGroup.Item key={event.id}>
-                  <div className="d-flex justify-content-between">
-                    <div>
-                      <strong>{event.title}</strong>
-                      <div className="small text-muted">{event.district} • {new Date(event.event_date).toLocaleDateString()}</div>
-                    </div>
-                    <Button variant="outline-secondary" size="sm">Cancel RSVP</Button>
-                  </div>
-                </ListGroup.Item>
-              ))}
-            </ListGroup>
+            <h5>My Events</h5>
+            <MyEvents />
           </div>
         </Tab>
 
@@ -199,3 +177,4 @@ export default function FanDashboard() {
     </div>
   );
 }
+ 

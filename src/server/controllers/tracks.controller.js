@@ -1,9 +1,10 @@
-// server/controllers/tracks.controller.js
+// src/server/controllers/tracks.controller.js
 const pool = require('../db').pool;
 const path = require('path');
 
 const UPLOADS_PREFIX = process.env.UPLOADS_PREFIX || '/uploads';
 const TRACKS_SUBDIR = 'tracks';
+const ARTWORK_SUBDIR = path.posix.join(TRACKS_SUBDIR, 'artwork');
 
 // Helper: check if a column is AUTO_INCREMENT
 async function isAutoIncrement(table, column) {
@@ -28,12 +29,21 @@ async function getArtistIdForUser(userId) {
   return rows[0].id;
 }
 
-// Normalize DB row to frontend shape
+// Helper: detect if a column exists (return boolean)
+async function tableHasColumn(table, column) {
+  const [cols] = await pool.query('SHOW COLUMNS FROM ??', [table]);
+  const colNames = (cols || []).map(c => String(c.Field));
+  return colNames.includes(column);
+}
+
+// Normalize DB row to frontend shape (include genre/artwork if present)
 function normalizeTrackRow(row) {
   return {
     id: row.id,
     title: row.title || null,
     preview_url: row.preview_url || row.previewUrl || null,
+    artwork_url: row.preview_artwork || row.artwork_url || row.cover_url || null,
+    genre: row.genre || null,
     duration: row.duration || null,
     artist_id: row.artist_id || null,
     createdAt: row.created_at || row.createdAt || null
@@ -45,7 +55,7 @@ exports.listTracks = async (req, res, next) => {
     const userId = req.user && req.user.id;
     const artistId = await getArtistIdForUser(userId);
     if (!artistId) {
-      // If user isn't an artist yet, return empty list (or you could 400)
+      // If user isn't an artist yet, return empty list
       return res.json([]);
     }
 
@@ -68,51 +78,63 @@ exports.createTrack = async (req, res, next) => {
       return res.status(400).json({ error: 'Artist profile not found. Please complete onboarding before adding tracks.' });
     }
 
-    // require uploaded file
-    if (!req.file || !req.file.filename) {
-      return res.status(400).json({ error: 'No audio file uploaded' });
+    // Multer .fields() places files on req.files (object). audio field: 'file', artwork: 'artwork'
+    const audioFile = req.files?.file?.[0];
+    const artworkFile = req.files?.artwork?.[0];
+
+    if (!audioFile) {
+      return res.status(400).json({ error: 'No audio file uploaded (field name: file)' });
     }
 
-    const fileUrl = path.posix.join(UPLOADS_PREFIX, TRACKS_SUBDIR, req.file.filename);
-    const title = req.body.title ? String(req.body.title).trim() : (req.file.originalname || 'Untitled');
+    const audioUrl = path.posix.join(UPLOADS_PREFIX, TRACKS_SUBDIR, audioFile.filename);
+    const artworkUrl = artworkFile ? path.posix.join(UPLOADS_PREFIX, ARTWORK_SUBDIR, artworkFile.filename) : null;
+
+    const title = req.body.title ? String(req.body.title).trim() : (audioFile.originalname || 'Untitled');
+    const genre = req.body.genre ? String(req.body.genre).trim() : null;
+    const duration = typeof req.body.duration !== 'undefined' ? (Number(req.body.duration) || null) : null;
 
     // detect if id is auto_increment
     const idAuto = await isAutoIncrement('tracks', 'id');
 
-    // Build insert fields according to your schema (tracks has: id, artist_id, title, preview_url, duration)
+    // Build insert fields dynamically (only include columns that exist)
+    const [cols] = await pool.query('SHOW COLUMNS FROM tracks');
+    const colNames = (cols || []).map(c => String(c.Field));
+
     const fields = [];
     const vals = [];
 
-    if (!idAuto) {
+    if (!idAuto && colNames.includes('id')) {
       // compute next id
       const [r] = await pool.query('SELECT COALESCE(MAX(id), 0) + 1 AS nextId FROM tracks');
       const nextId = r && r[0] ? Number(r[0].nextId) : 1;
       fields.push('id'); vals.push(nextId);
     }
 
-    // title
-    fields.push('title'); vals.push(title);
+    if (colNames.includes('title')) { fields.push('title'); vals.push(title); }
+    // preview column variants
+    if (colNames.includes('preview_url')) { fields.push('preview_url'); vals.push(audioUrl); }
+    else if (colNames.includes('previewUrl')) { fields.push('previewUrl'); vals.push(audioUrl); }
+    else if (colNames.includes('file_url')) { fields.push('file_url'); vals.push(audioUrl); }
 
-    // preview_url column present per your schema
-    fields.push('preview_url'); vals.push(fileUrl);
+    if (colNames.includes('artist_id')) { fields.push('artist_id'); vals.push(artistId); }
 
-    // artist_id must be set to the artist's id (NOT the user id)
-    fields.push('artist_id'); vals.push(artistId);
+    if (genre && colNames.includes('genre')) { fields.push('genre'); vals.push(genre); }
+    if (duration !== null && colNames.includes('duration')) { fields.push('duration'); vals.push(duration); }
 
-    // optionally duration if provided and column exists
-    if (typeof req.body.duration !== 'undefined') {
-      const [cols] = await pool.query('SHOW COLUMNS FROM tracks');
-      const colNames = (cols || []).map(c => String(c.Field));
-      if (colNames.includes('duration')) {
-        fields.push('duration'); vals.push(Number(req.body.duration) || null);
-      }
+    // artwork column common names
+    const artworkCol = colNames.includes('preview_artwork') ? 'preview_artwork'
+      : (colNames.includes('artwork_url') ? 'artwork_url'
+      : (colNames.includes('cover_url') ? 'cover_url' : null));
+    if (artworkUrl && artworkCol) { fields.push(artworkCol); vals.push(artworkUrl); }
+
+    if (fields.length === 0) {
+      return res.status(500).json({ error: 'No writable columns found in tracks table' });
     }
 
     const placeholders = fields.map(() => '?').join(', ');
     const sql = `INSERT INTO tracks (${fields.join(', ')}) VALUES (${placeholders})`;
     const [result] = await pool.query(sql, vals);
 
-    // select inserted row by id: if we inserted id manually use that, else use insertId
     const insertedId = !idAuto ? vals[0] : result.insertId;
     const [rows2] = await pool.query('SELECT * FROM tracks WHERE id = ? LIMIT 1', [insertedId]);
     const track = rows2[0] ? normalizeTrackRow(rows2[0]) : null;
@@ -141,7 +163,9 @@ exports.updateTrack = async (req, res, next) => {
       return res.status(403).json({ error: 'Not authorized' });
     }
 
-    // prepare updates (title, preview_url if uploaded, duration)
+    const audioFile = req.files?.file?.[0];
+    const artworkFile = req.files?.artwork?.[0];
+
     const updates = [];
     const vals = [];
 
@@ -149,17 +173,38 @@ exports.updateTrack = async (req, res, next) => {
       updates.push('title = ?'); vals.push(String(req.body.title));
     }
 
-    if (req.file && req.file.filename) {
-      const fileUrl = path.posix.join(UPLOADS_PREFIX, TRACKS_SUBDIR, req.file.filename);
-      updates.push('preview_url = ?'); vals.push(fileUrl);
+    if (audioFile) {
+      const audioUrl = path.posix.join(UPLOADS_PREFIX, TRACKS_SUBDIR, audioFile.filename);
+      // detect preview column
+      const [cols] = await pool.query('SHOW COLUMNS FROM tracks');
+      const colNames = (cols || []).map(c => String(c.Field));
+      if (colNames.includes('preview_url')) { updates.push('preview_url = ?'); vals.push(audioUrl); }
+      else if (colNames.includes('previewUrl')) { updates.push('previewUrl = ?'); vals.push(audioUrl); }
+      else if (colNames.includes('file_url')) { updates.push('file_url = ?'); vals.push(audioUrl); }
+    }
+
+    if (artworkFile) {
+      const artworkUrl = path.posix.join(UPLOADS_PREFIX, ARTWORK_SUBDIR, artworkFile.filename);
+      const [cols] = await pool.query('SHOW COLUMNS FROM tracks');
+      const colNames = (cols || []).map(c => String(c.Field));
+      const artworkCol = colNames.includes('preview_artwork') ? 'preview_artwork'
+        : (colNames.includes('artwork_url') ? 'artwork_url'
+        : (colNames.includes('cover_url') ? 'cover_url' : null));
+      if (artworkCol) {
+        updates.push(`${artworkCol} = ?`); vals.push(artworkUrl);
+      }
+    }
+
+    if (typeof req.body.genre !== 'undefined') {
+      const [cols] = await pool.query('SHOW COLUMNS FROM tracks');
+      const colNames = (cols || []).map(c => String(c.Field));
+      if (colNames.includes('genre')) { updates.push('genre = ?'); vals.push(String(req.body.genre)); }
     }
 
     if (typeof req.body.duration !== 'undefined') {
       const [cols] = await pool.query('SHOW COLUMNS FROM tracks');
       const colNames = (cols || []).map(c => String(c.Field));
-      if (colNames.includes('duration')) {
-        updates.push('duration = ?'); vals.push(Number(req.body.duration) || null);
-      }
+      if (colNames.includes('duration')) { updates.push('duration = ?'); vals.push(Number(req.body.duration) || null); }
     }
 
     if (updates.length === 0) {
@@ -188,7 +233,7 @@ exports.deleteTrack = async (req, res, next) => {
     const [existing] = await pool.query('SELECT * FROM tracks WHERE id = ? LIMIT 1', [id]);
     if (!existing || existing.length === 0) return res.status(404).json({ error: 'Track not found' });
 
-    // Verify ownership same as update
+    // Verify ownership
     const row = existing[0];
     const [artistRows] = await pool.query('SELECT user_id FROM artists WHERE id = ? LIMIT 1', [row.artist_id]);
     const artistRow = artistRows && artistRows[0] ? artistRows[0] : null;

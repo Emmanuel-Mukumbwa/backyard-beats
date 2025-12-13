@@ -1,10 +1,12 @@
-// src/components/Navbar.jsx
 import React, { useContext, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Navbar as RBNavbar, Nav as RBNav, Container as RBContainer } from 'react-bootstrap';
+import { Navbar as RBNavbar, Nav as RBNav, Container as RBContainer, NavDropdown, Image } from 'react-bootstrap';
 import { AuthContext } from '../context/AuthContext';
 import LogoutConfirmModal from './LogoutConfirmModal';
 import ToastMessage from './ToastMessage';
+
+// icons
+import { FaHome, FaCalendarAlt, FaMusic, FaTools, FaSignInAlt, FaUserPlus } from 'react-icons/fa';
 
 export default function Navbar() {
   const { user, logout } = useContext(AuthContext);
@@ -13,85 +15,69 @@ export default function Navbar() {
   const [showLogout, setShowLogout] = useState(false);
   const [processingLogout, setProcessingLogout] = useState(false);
   const [toast, setToast] = useState({ show: false, message: '', variant: 'success' });
-
-  function handleLogoutClick(e) {
-    e.preventDefault();
-    setShowLogout(true);
-  }
+  const [expanded, setExpanded] = useState(false);
 
   async function handleConfirmLogout() {
     setProcessingLogout(true);
     try {
-      // call context logout (should clear token/localStorage if implemented there)
       await logout();
-
-      // ensure localStorage is cleared as well (safe-guard)
-      try {
-        localStorage.removeItem('bb_user');
-        localStorage.removeItem('bb_token');
-      } catch (storageErr) {
-        // ignore storage errors
-      }
-
+      try { localStorage.removeItem('bb_user'); localStorage.removeItem('bb_token'); } catch {}
       setShowLogout(false);
       setToast({ show: true, message: 'You have signed out', variant: 'success' });
+      setExpanded(false);
       navigate('/login', { replace: true });
-    } catch (err) {
+    } catch {
       setToast({ show: true, message: 'Could not sign out. Try again.', variant: 'danger' });
     } finally {
       setProcessingLogout(false);
     }
   }
 
-  function handleCancelLogout() {
-    setShowLogout(false);
-  }
+  function handleLogoutClick(e) { e.preventDefault(); setShowLogout(true); }
+  function handleCancelLogout() { setShowLogout(false); }
+
+  const userDisplay = user?.displayName || user?.username || '';
 
   return (
     <>
       <ToastMessage show={toast.show} onClose={() => setToast(s => ({ ...s, show: false }))} message={toast.message} variant={toast.variant} />
 
-      <RBNavbar bg="success" variant="dark" expand="lg">
+      <RBNavbar bg="success" variant="dark" expand="lg" sticky="top" expanded={expanded} onToggle={setExpanded} className="shadow-soft">
         <RBContainer>
           <RBNavbar.Brand as={Link} to="/">BackyardBeats</RBNavbar.Brand>
           <RBNavbar.Toggle aria-controls="navbar-nav" />
           <RBNavbar.Collapse id="navbar-nav">
-            <RBNav className="ms-auto">
-              <RBNav.Link as={Link} to="/">Home</RBNav.Link>
-              <RBNav.Link as={Link} to="/events">Events</RBNav.Link>
+            <RBNav className="ms-auto" onSelect={() => setExpanded(false)}>
+              <RBNav.Link as={Link} to="/"><FaHome className="me-1" />Home</RBNav.Link>
+              <RBNav.Link as={Link} to="/events"><FaCalendarAlt className="me-1" />Events</RBNav.Link>
 
-              {/* Show Admin link if admin */}
               {user?.role === 'admin' && (
-                <RBNav.Link as={Link} to="/admin">Admin</RBNav.Link>
+                <RBNav.Link as={Link} to="/admin"><FaTools className="me-1" />Admin</RBNav.Link>
               )}
 
-              {/* If user is artist, show dashboard link.
-                  If artist hasn't completed profile yet, also show Onboard link */}
               {user?.role === 'artist' && (
                 <>
-                  <RBNav.Link as={Link} to="/artist/dashboard">My Dashboard</RBNav.Link>
+                  <RBNav.Link as={Link} to="/artist/dashboard"><FaMusic className="me-1" />My Dashboard</RBNav.Link>
                   {!user?.has_profile && (
                     <RBNav.Link as={Link} to="/onboard">Onboard</RBNav.Link>
                   )}
                 </>
               )}
 
-              {/* If user is fan, show dashboard link */}
               {user?.role === 'fan' && (
                 <RBNav.Link as={Link} to="/fan/dashboard">My Dashboard</RBNav.Link>
               )}
 
               {user ? (
-                <>
-                  <span className="navbar-text ms-3 me-2 small" style={{fontWeight:'bold'}}>
-                    {user.displayName || user.username} <span className="badge bg-light text-dark ms-2">{user.role}</span>
-                  </span>
-                  <RBNav.Link as={Link} to="#" onClick={handleLogoutClick}>Logout</RBNav.Link>
-                </>
+                <NavUserDropdown
+                  user={user}
+                  display={userDisplay}
+                  onLogout={() => setShowLogout(true)}
+                />
               ) : (
                 <>
-                  <RBNav.Link as={Link} to="/login">Login</RBNav.Link>
-                  <RBNav.Link as={Link} to="/register">Register</RBNav.Link>
+                  <RBNav.Link as={Link} to="/login"><FaSignInAlt className="me-1" />Login</RBNav.Link>
+                  <RBNav.Link as={Link} to="/register"><FaUserPlus className="me-1" />Register</RBNav.Link>
                 </>
               )}
             </RBNav>
@@ -107,5 +93,32 @@ export default function Navbar() {
         processing={processingLogout}
       />
     </>
+  );
+}
+
+function NavUserDropdown({ user, display, onLogout }) {
+  const avatarUrl = user?.photo_url || user?.photo || null;
+  const avatarSrc = avatarUrl && /^https?:\/\//i.test(avatarUrl) ? avatarUrl : (avatarUrl ? `${process.env.REACT_APP_API_URL?.replace(/\/$/, '') || ''}/${avatarUrl}` : null);
+  return (
+    <NavDropdown align="end" title={
+      <span className="d-inline-flex align-items-center">
+        {avatarSrc ? (
+          <Image src={avatarSrc} roundedCircle style={{ width: 30, height: 30, objectFit: 'cover', marginRight: 8 }} />
+        ) : (
+          <div style={{
+            width: 30, height: 30, borderRadius: '50%', background: '#fff', display: 'inline-block', marginRight: 8, textAlign: 'center',
+            lineHeight: '30px', color: '#198754', fontWeight: '700'
+          }}>
+            {String(display || 'U').charAt(0).toUpperCase()}
+          </div>
+        )}
+        <span className="small">{display}</span>
+      </span>
+    } id="user-dropdown">
+      <NavDropdown.Item as={Link} to="/profile">Profile</NavDropdown.Item>
+      {user?.role === 'artist' && <NavDropdown.Item as={Link} to="/artist/dashboard">Dashboard</NavDropdown.Item>}
+      <NavDropdown.Divider />
+      <NavDropdown.Item as="button" onClick={onLogout}>Logout</NavDropdown.Item>
+    </NavDropdown>
   );
 }

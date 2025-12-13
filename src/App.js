@@ -15,6 +15,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import { AuthProvider } from './context/AuthContext';
 import RequireAuth from './components/RequireAuth';
 import RequireRole from './components/RequireRole';
+import EventDetail from './pages/EventDetail';
  
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/artist/:id" element={<ArtistDetail />} />
             <Route path="/events" element={<Events />} />
+            <Route path="/events/:id" element={<EventDetail />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/orientation" element={<Orientation />} />

@@ -1,15 +1,34 @@
-//src/pages/ArtistDashboard.js
+// src/pages/ArtistDashboard.jsx
 import React, { useState, useEffect, useContext } from 'react';
-import { Tabs, Tab, Card, Button, Form, Alert, Table, Modal, Row, Col } from 'react-bootstrap';
+import {
+  Tabs,
+  Tab,
+  Card,
+  Button,
+  Alert,
+  Table,
+  Row,
+  Col,
+  Image,
+  Badge,
+  Stack
+} from 'react-bootstrap';
+import { useNavigate } from 'react-router-dom';
 import axios from '../api/axiosConfig';
 import { AuthContext } from '../context/AuthContext';
 import AudioPlayer from '../components/AudioPlayer';
 import RatingsList from '../components/RatingsList';
 import DISTRICTS from '../data/districts';
+import AddTrackModal from '../components/AddTrackModal';
+import AddEventModal from '../components/AddEventModal';
+
+// icons
+import { FaMusic, FaCalendarAlt, FaChartLine, FaPlus, FaEdit, FaTrash, FaUserCircle } from 'react-icons/fa';
 
 const GENRES = ["Afropop", "Gospel", "Hip-hop", "R&B", "Reggae", "Highlife", "Traditional", "Dancehall", "Jazz", "Blues", "Electronic"];
 
 export default function ArtistDashboard() {
+  const navigate = useNavigate();
   const { user } = useContext(AuthContext);
   const [artist, setArtist] = useState(null);
   const [tracks, setTracks] = useState([]);
@@ -18,83 +37,64 @@ export default function ArtistDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Modals and forms
+  // Modals
   const [showTrackModal, setShowTrackModal] = useState(false);
   const [showEventModal, setShowEventModal] = useState(false);
   const [editingTrack, setEditingTrack] = useState(null);
   const [editingEvent, setEditingEvent] = useState(null);
-  const [trackForm, setTrackForm] = useState({ title: '', file: null });
-  const [eventForm, setEventForm] = useState({ title: '', description: '', event_date: '', district_id: '' });
-  const [profileForm, setProfileForm] = useState({ display_name: '', bio: '', photo: null, genres: [] });
 
   useEffect(() => {
     loadDashboardData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadDashboardData() {
     setLoading(true);
     setError(null);
     try {
-      const [artistRes, tracksRes, eventsRes, ratingsRes] = await Promise.all([
+      const [artistRes, tracksRes, eventsRes] = await Promise.all([
         axios.get('/artist/me'),
         axios.get('/tracks'),
         axios.get('/events'),
-        axios.get(`/artists/${user.id}/ratings`)
       ]);
-      setArtist(artistRes.data.artist);
-      setTracks(tracksRes.data.filter(t => t.artist_id === user.id));
-      setEvents(eventsRes.data.filter(e => e.artist_id === user.id));
-      setRatings(ratingsRes.data);
+
+      const artistData = artistRes.data.artist || null;
+      setArtist(artistData);
+
+      // tracks/events endpoints return only artist-owned items (as implemented server-side)
+      setTracks(Array.isArray(tracksRes.data) ? tracksRes.data : []);
+      setEvents(Array.isArray(eventsRes.data) ? eventsRes.data : []);
+
+      // ratings for artist
+      if (artistData?.id) {
+        const r = await axios.get(`/artists/${artistData.id}/ratings`);
+        setRatings(Array.isArray(r.data) ? r.data : []);
+      } else {
+        setRatings([]);
+      }
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(err.response?.data?.error || err.message || 'Failed to load dashboard');
     } finally {
       setLoading(false);
     }
   }
 
-  // Track CRUD
-  const handleTrackSubmit = async (e) => {
-    e.preventDefault();
-    const formData = new FormData();
-    formData.append('title', trackForm.title);
-    formData.append('file', trackForm.file);
-    try {
-      if (editingTrack) {
-        await axios.put(`/tracks/${editingTrack.id}`, formData);
-      } else {
-        await axios.post('/tracks', formData);
-      }
-      setShowTrackModal(false);
-      setTrackForm({ title: '', file: null });
-      setEditingTrack(null);
-      loadDashboardData();
-    } catch (err) {
-      setError(err.response?.data?.error || err.message);
-    }
+  const onTrackSaved = (savedTrack) => {
+    loadDashboardData();
+    setShowTrackModal(false);
+    setEditingTrack(null);
+  };
+
+  const onEventSaved = (savedEvent) => {
+    loadDashboardData();
+    setShowEventModal(false);
+    setEditingEvent(null);
   };
 
   const deleteTrack = async (id) => {
     if (!window.confirm('Delete this track?')) return;
     try {
       await axios.delete(`/tracks/${id}`);
-      loadDashboardData();
-    } catch (err) {
-      setError(err.response?.data?.error || err.message);
-    }
-  };
-
-  // Event CRUD
-  const handleEventSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      if (editingEvent) {
-        await axios.put(`/events/${editingEvent.id}`, eventForm);
-      } else {
-        await axios.post('/events', eventForm);
-      }
-      setShowEventModal(false);
-      setEventForm({ title: '', description: '', event_date: '', district_id: '' });
-      setEditingEvent(null);
       loadDashboardData();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -111,212 +111,315 @@ export default function ArtistDashboard() {
     }
   };
 
-  // Profile update
-  const handleProfileSubmit = async (e) => {
-    e.preventDefault();
-    const formData = new FormData();
-    formData.append('display_name', profileForm.display_name);
-    formData.append('bio', profileForm.bio);
-    formData.append('genres', JSON.stringify(profileForm.genres));
-    if (profileForm.photo) formData.append('photo', profileForm.photo);
-    try {
-      await axios.post('/artist/onboard', formData);
-      loadDashboardData();
-      alert('Profile updated!');
-    } catch (err) {
-      setError(err.response?.data?.error || err.message);
-    }
-  };
-
   if (loading) return <div className="text-center py-5">Loading dashboard...</div>;
   if (error) return <Alert variant="danger">{error}</Alert>;
   if (!artist) return <Alert variant="warning">Artist profile not found.</Alert>;
 
+  // resolve backend URL helper (inline - no extra files)
+  const backendBase = (() => {
+    try {
+      return (axios && axios.defaults && axios.defaults.baseURL) || process.env.REACT_APP_API_URL || 'http://localhost:3001';
+    } catch {
+      return process.env.REACT_APP_API_URL || 'http://localhost:3001';
+    }
+  })().replace(/\/$/, '');
+
+  const resolveToBackend = (raw, artistId) => {
+    if (!raw && !artistId) return '';
+    if (artistId && !raw) {
+      return '';
+    }
+    if (!raw) return '';
+    if (/^https?:\/\//i.test(raw)) return raw;
+    if (raw.startsWith('/')) return `${backendBase}${raw}`;
+    if (raw.startsWith('uploads/')) return `${backendBase}/${raw}`;
+    return `${backendBase}/uploads/${raw}`;
+  };
+
+  // avatar src: prefer stored photo path if present; fallback to ui-avatars
+  const photoRaw = artist.photo_url || artist.photo || null;
+  const avatarSrc = photoRaw
+    ? (photoRaw.startsWith('http') ? photoRaw : resolveToBackend(photoRaw, artist.id))
+    : `https://ui-avatars.com/api/?name=${encodeURIComponent(artist.display_name || artist.username || 'Artist')}&background=0D8ABC&color=fff&size=256`;
+
+  // counts used in tab titles
+  const tracksCount = tracks.length;
+  const eventsCount = events.length;
+  const ratingsCount = ratings.length;
+
+  // Small helper to format upcoming events count
+  const upcomingCount = events.filter(e => e.event_date && new Date(e.event_date) > new Date()).length;
+
+  // improved look: cards with subtle shadows, icons
   return (
     <div>
-      <h2 className="mb-4">Artist Dashboard</h2>
-      <Tabs defaultActiveKey="overview" id="artist-dashboard-tabs">
-        <Tab eventKey="overview" title="Overview">
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <div>
+          <h2 className="mb-0">Artist Dashboard</h2>
+          <div className="text-muted small">Manage your tracks, events and profile</div>
+        </div>
+
+        <div>
+          <Stack direction="horizontal" gap={2}>
+            <Button variant="outline-secondary" size="sm" onClick={() => navigate('/')}>Back to Home</Button>
+            <Button variant="success" size="sm" onClick={() => { setEditingTrack(null); setShowTrackModal(true); }}>
+              <FaPlus className="me-1" /> Add Track
+            </Button>
+            <Button variant="outline-success" size="sm" onClick={() => { setEditingEvent(null); setShowEventModal(true); }}>
+              <FaPlus className="me-1" /> Add Event
+            </Button>
+          </Stack>
+        </div>
+      </div>
+
+      <Tabs defaultActiveKey="overview" id="artist-dashboard-tabs" className="mb-3">
+        <Tab
+          eventKey="overview"
+          title={
+            <span>
+              <FaUserCircle className="me-1" /> Overview
+            </span>
+          }
+        >
           <Row className="mt-3">
             <Col md={4}>
-              <Card>
-                <Card.Img variant="top" src={artist.photo_url || '/assets/placeholder.png'} />
+              <Card className="text-center p-3 shadow-sm">
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <Image
+                    src={avatarSrc}
+                    roundedCircle
+                    style={{ width: 160, height: 160, objectFit: 'cover', border: '4px solid #f8f9fa' }}
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(artist.display_name || artist.username || 'Artist')}&background=0D8ABC&color=fff&size=256`;
+                    }}
+                    alt={`${artist.display_name || artist.username || 'Artist'} avatar`}
+                  />
+                </div>
+
                 <Card.Body>
-                  <Card.Title>{artist.display_name}</Card.Title>
-                  <Card.Text>{artist.bio}</Card.Text>
+                  <Card.Title className="mt-2">{artist.display_name}</Card.Title>
+                  <Card.Text className="text-muted small">{artist.bio || 'No bio yet — tell fans about your music.'}</Card.Text>
+
+                  <div className="d-flex justify-content-center mt-3">
+                    <Button variant="outline-primary" size="sm" onClick={() => navigate('/onboard')}>
+                      <FaEdit className="me-1" /> Edit Profile
+                    </Button>
+                  </div>
+
+                  <hr />
+
+                  <div className="d-flex justify-content-around mt-2">
+                    <div className="text-center">
+                      <div className="h5 mb-0">{tracksCount}</div>
+                      <div className="small text-muted">Tracks</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="h5 mb-0">{eventsCount}</div>
+                      <div className="small text-muted">Events</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="h5 mb-0">{ratingsCount}</div>
+                      <div className="small text-muted">Reviews</div>
+                    </div>
+                  </div>
                 </Card.Body>
               </Card>
             </Col>
+
             <Col md={8}>
-              <Card>
+              <Card className="shadow-sm">
                 <Card.Body>
-                  <h5>Stats</h5>
-                  <p>Tracks: {tracks.length}</p>
-                  <p>Events: {events.length}</p>
-                  <p>Average Rating: {artist.avg_rating || 'N/A'}</p>
-                  <p>Reviews: {ratings.length}</p>
+                  <h5><FaChartLine className="me-2" /> Engagement</h5>
+                  <Row className="mt-3">
+                    <Col md={6}>
+                      <div className="mb-2"><strong>Average Rating</strong></div>
+                      <div className="display-6 text-success">{artist.avg_rating ? artist.avg_rating.toFixed(1) : 'N/A'}</div>
+                    </Col>
+                    <Col md={6}>
+                      <div className="mb-2"><strong>Upcoming Events</strong></div>
+                      <div className="display-6">{upcomingCount}</div>
+                    </Col>
+                  </Row>
+
+                  <hr />
+
+                  <div className="mt-2">
+                    <h6>Recent Reviews</h6>
+                    <div>
+                      <RatingsList artistId={artist.id} />
+                    </div>
+                  </div>
                 </Card.Body>
               </Card>
             </Col>
           </Row>
         </Tab>
 
-        <Tab eventKey="tracks" title="Tracks">
+        <Tab
+          eventKey="tracks"
+          title={
+            <span>
+              <FaMusic className="me-1" /> Tracks <Badge bg="secondary" className="ms-2">{tracksCount}</Badge>
+            </span>
+          }
+        >
           <div className="mt-3">
-            <Button onClick={() => setShowTrackModal(true)}>Add Track</Button>
-            <Table striped className="mt-3">
+            <div className="d-flex justify-content-between align-items-center mb-2">
+              <div>
+                <Button onClick={() => { setEditingTrack(null); setShowTrackModal(true); }} variant="outline-success" size="sm">
+                  <FaPlus className="me-1" /> New Track
+                </Button>
+              </div>
+              <div className="small text-muted">Manage your audio uploads and metadata</div>
+            </div>
+
+            <Table striped hover responsive className="mb-3">
               <thead>
                 <tr>
                   <th>Title</th>
                   <th>Duration</th>
-                  <th>Actions</th>
+                  <th>Genre</th>
+                  <th style={{ width: 160 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {tracks.map(track => (
                   <tr key={track.id}>
                     <td>{track.title}</td>
-                    <td>{track.duration}s</td>
+                    <td>{track.duration ? `${track.duration}s` : '-'}</td>
+                    <td>{track.genre || '-'}</td>
                     <td>
-                      <Button size="sm" onClick={() => { setEditingTrack(track); setTrackForm({ title: track.title, file: null }); setShowTrackModal(true); }}>Edit</Button>
-                      <Button size="sm" variant="danger" onClick={() => deleteTrack(track.id)}>Delete</Button>
+                      <div className="d-flex gap-2">
+                        <Button size="sm" variant="outline-primary" onClick={() => { setEditingTrack(track); setShowTrackModal(true); }}>
+                          <FaEdit className="me-1" /> Edit
+                        </Button>
+                        <Button size="sm" variant="outline-danger" onClick={() => deleteTrack(track.id)}>
+                          <FaTrash className="me-1" /> Delete
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
+                {tracks.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="text-center text-muted">No tracks yet — add your first track.</td>
+                  </tr>
+                )}
               </tbody>
             </Table>
+
             {tracks.length > 0 && <AudioPlayer tracks={tracks} />}
           </div>
         </Tab>
 
-        <Tab eventKey="events" title="Events">
+        <Tab
+          eventKey="events"
+          title={
+            <span>
+              <FaCalendarAlt className="me-1" /> Events <Badge bg="secondary" className="ms-2">{eventsCount}</Badge>
+            </span>
+          }
+        >
           <div className="mt-3">
-            <Button onClick={() => setShowEventModal(true)}>Add Event</Button>
-            <Table striped className="mt-3">
+            <div className="d-flex justify-content-between align-items-center mb-2">
+              <div>
+                <Button onClick={() => { setEditingEvent(null); setShowEventModal(true); }} variant="outline-success" size="sm">
+                  <FaPlus className="me-1" /> New Event
+                </Button>
+              </div>
+              <div className="small text-muted">Create and manage upcoming gigs</div>
+            </div>
+
+            <Table striped hover responsive>
               <thead>
                 <tr>
                   <th>Title</th>
                   <th>Date</th>
                   <th>District</th>
-                  <th>Actions</th>
+                  <th>Venue</th>
+                  <th style={{ width: 140 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {events.map(event => (
-                  <tr key={event.id}>
-                    <td>{event.title}</td>
-                    <td>{new Date(event.event_date).toLocaleDateString()}</td>
-                    <td>{event.district}</td>
+                {events.map(ev => (
+                  <tr key={ev.id}>
+                    <td>{ev.title}</td>
+                    <td>{ev.event_date ? new Date(ev.event_date).toLocaleDateString() : '-'}</td>
+                    <td>{ev.district_id ? DISTRICTS[ev.district_id - 1] : '-'}</td>
+                    <td>{ev.venue || '-'}</td>
                     <td>
-                      <Button size="sm" onClick={() => { setEditingEvent(event); setEventForm({ title: event.title, description: event.description, event_date: event.event_date.split('T')[0], district_id: event.district_id }); setShowEventModal(true); }}>Edit</Button>
-                      <Button size="sm" variant="danger" onClick={() => deleteEvent(event.id)}>Delete</Button>
+                      <div className="d-flex gap-2">
+                        <Button size="sm" variant="outline-primary" onClick={() => { setEditingEvent(ev); setShowEventModal(true); }}>
+                          <FaEdit className="me-1" /> Edit
+                        </Button>
+                        <Button size="sm" variant="outline-danger" onClick={() => deleteEvent(ev.id)}>
+                          <FaTrash className="me-1" /> Delete
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
+                {events.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="text-center text-muted">No events yet — create your first event.</td>
+                  </tr>
+                )}
               </tbody>
             </Table>
           </div>
         </Tab>
 
-        <Tab eventKey="analytics" title="Analytics">
+        <Tab
+          eventKey="analytics"
+          title={
+            <span>
+              <FaChartLine className="me-1" /> Analytics
+            </span>
+          }
+        >
           <div className="mt-3">
-            <Card>
+            <Card className="shadow-sm">
               <Card.Body>
                 <h5>Engagement Metrics</h5>
-                <p>Total Views: {/* Placeholder */}0</p>
-                <p>Average Rating: {artist.avg_rating || 'N/A'}</p>
-                <p>Number of Reviews: {ratings.length}</p>
-                <p>Upcoming Events: {events.filter(e => new Date(e.event_date) > new Date()).length}</p>
+                <Row className="mt-3">
+                  <Col md={4}>
+                    <div className="small text-muted">Total Plays</div>
+                    <div className="h4">—</div>
+                  </Col>
+                  <Col md={4}>
+                    <div className="small text-muted">Average Rating</div>
+                    <div className="h4">{artist.avg_rating ? artist.avg_rating.toFixed(1) : 'N/A'}</div>
+                  </Col>
+                  <Col md={4}>
+                    <div className="small text-muted">Reviews</div>
+                    <div className="h4">{ratings.length}</div>
+                  </Col>
+                </Row>
+                <hr />
+                <RatingsList artistId={artist.id} />
               </Card.Body>
             </Card>
-            <RatingsList artistId={user.id} />
           </div>
-        </Tab>
-
-        <Tab eventKey="settings" title="Settings">
-          <Form onSubmit={handleProfileSubmit} className="mt-3">
-            <Form.Group className="mb-3">
-              <Form.Label>Display Name</Form.Label>
-              <Form.Control type="text" value={profileForm.display_name} onChange={e => setProfileForm({...profileForm, display_name: e.target.value})} required />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Bio</Form.Label>
-              <Form.Control as="textarea" rows={3} value={profileForm.bio} onChange={e => setProfileForm({...profileForm, bio: e.target.value})} />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Genres</Form.Label>
-              {GENRES.map(genre => (
-                <Form.Check key={genre} type="checkbox" label={genre} checked={profileForm.genres.includes(genre)} onChange={e => {
-                  const newGenres = e.target.checked ? [...profileForm.genres, genre] : profileForm.genres.filter(g => g !== genre);
-                  setProfileForm({...profileForm, genres: newGenres});
-                }} />
-              ))}
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Photo</Form.Label>
-              <Form.Control type="file" onChange={e => setProfileForm({...profileForm, photo: e.target.files[0]})} />
-            </Form.Group>
-            <Button type="submit">Update Profile</Button>
-          </Form>
         </Tab>
       </Tabs>
 
-      {/* Track Modal */}
-      <Modal show={showTrackModal} onHide={() => setShowTrackModal(false)}>
-        <Modal.Header closeButton>
-          <Modal.Title>{editingTrack ? 'Edit Track' : 'Add Track'}</Modal.Title>
-        </Modal.Header>
-        <Form onSubmit={handleTrackSubmit}>
-          <Modal.Body>
-            <Form.Group className="mb-3">
-              <Form.Label>Title</Form.Label>
-              <Form.Control type="text" value={trackForm.title} onChange={e => setTrackForm({...trackForm, title: e.target.value})} required />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Audio File</Form.Label>
-              <Form.Control type="file" accept="audio/*" onChange={e => setTrackForm({...trackForm, file: e.target.files[0]})} required={!editingTrack} />
-            </Form.Group>
-          </Modal.Body>
-          <Modal.Footer>
-            <Button variant="secondary" onClick={() => setShowTrackModal(false)}>Cancel</Button>
-            <Button type="submit">{editingTrack ? 'Update' : 'Add'}</Button>
-          </Modal.Footer>
-        </Form>
-      </Modal>
+      {/* Modals */}
+      <AddTrackModal
+        show={showTrackModal}
+        onHide={() => setShowTrackModal(false)}
+        onSaved={onTrackSaved}
+        editing={editingTrack}
+        genres={GENRES}
+      />
 
-      {/* Event Modal */}
-      <Modal show={showEventModal} onHide={() => setShowEventModal(false)}>
-        <Modal.Header closeButton>
-          <Modal.Title>{editingEvent ? 'Edit Event' : 'Add Event'}</Modal.Title>
-        </Modal.Header>
-        <Form onSubmit={handleEventSubmit}>
-          <Modal.Body>
-            <Form.Group className="mb-3">
-              <Form.Label>Title</Form.Label>
-              <Form.Control type="text" value={eventForm.title} onChange={e => setEventForm({...eventForm, title: e.target.value})} required />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Description</Form.Label>
-              <Form.Control as="textarea" rows={3} value={eventForm.description} onChange={e => setEventForm({...eventForm, description: e.target.value})} />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Date</Form.Label>
-              <Form.Control type="date" value={eventForm.event_date} onChange={e => setEventForm({...eventForm, event_date: e.target.value})} required />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>District</Form.Label>
-              <Form.Select value={eventForm.district_id} onChange={e => setEventForm({...eventForm, district_id: e.target.value})} required>
-                <option value="">Select District</option>
-                {DISTRICTS.map((d, i) => <option key={i} value={i+1}>{d}</option>)}
-              </Form.Select>
-            </Form.Group>
-          </Modal.Body>
-          <Modal.Footer>
-            <Button variant="secondary" onClick={() => setShowEventModal(false)}>Cancel</Button>
-            <Button type="submit">{editingEvent ? 'Update' : 'Add'}</Button>
-          </Modal.Footer>
-        </Form>
-      </Modal>
+      <AddEventModal
+        show={showEventModal}
+        onHide={() => setShowEventModal(false)}
+        onSaved={onEventSaved}
+        editing={editingEvent}
+        districts={DISTRICTS}
+      />
     </div>
   );
 }

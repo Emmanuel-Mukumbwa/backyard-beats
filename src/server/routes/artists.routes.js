@@ -11,3 +11,4 @@ router.get('/:id', controller.getArtistById);
 router.get('/:id/ratings', ratingsCtrl.getRatingsForArtist);
 
 module.exports = router;
+ 
