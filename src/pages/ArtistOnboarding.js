@@ -7,7 +7,7 @@ import DISTRICTS from '../data/districts';
 import { AuthContext } from '../context/AuthContext';
 
 export default function ArtistOnboarding() {
-  const { user, updateUser } = useContext(AuthContext);
+  const { user, updateUser, fetchArtistProfile } = useContext(AuthContext);
   const navigate = useNavigate();
 
   const [displayName, setDisplayName] = useState('');
@@ -16,7 +16,7 @@ export default function ArtistOnboarding() {
   const [districtId, setDistrictId] = useState(null); // numeric id if available
   const [genres, setGenres] = useState([]);
   const [photoFile, setPhotoFile] = useState(null); // File object
-  const [photoPreview, setPhotoPreview] = useState(null); // object URL
+  const [photoPreview, setPhotoPreview] = useState(null); // object URL or absolute server URL
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
@@ -26,31 +26,47 @@ export default function ArtistOnboarding() {
     "Traditional","Dancehall","Jazz","Blues","Electronic"
   ];
 
+  // Resolve preview URL (make uploads path absolute if needed)
+  const resolvePreviewUrl = (raw) => {
+    if (!raw) return null;
+    if (/^https?:\/\//i.test(raw)) return raw;
+    const base = (axios && axios.defaults && axios.defaults.baseURL) || process.env.REACT_APP_API_URL || 'http://localhost:3001';
+    if (raw.startsWith('/')) return `${base}${raw}`;
+    if (raw.startsWith('uploads/')) return `${base}/${raw}`;
+    // fallback
+    return `${base}/uploads/${raw}`;
+  };
+
   useEffect(() => {
     // Prefill from AuthContext.user if available, otherwise fall back to localStorage legacy keys
     try {
       if (user) {
         if (user.username) setDisplayName(user.username);
         if (user.display_name) setDisplayName(user.display_name);
+        if (user.displayName) setDisplayName(user.displayName);
+
         if (user.district) setDistrict(user.district);
         if (user.district_id) {
           setDistrictId(Number(user.district_id));
           setDistrict(String(user.district_id));
         }
         if (user.photo_url) {
-          setPhotoPreview(user.photo_url);
+          setPhotoPreview(resolvePreviewUrl(user.photo_url));
+        } else if (user.photo) {
+          setPhotoPreview(resolvePreviewUrl(user.photo));
         }
       } else {
         const stored = JSON.parse(localStorage.getItem('bb_user') || 'null');
         if (stored) {
           if (stored.username) setDisplayName(stored.username);
           if (stored.displayName) setDisplayName(stored.displayName);
+          if (stored.display_name) setDisplayName(stored.display_name);
           if (stored.district) setDistrict(stored.district);
           if (stored.district_id) {
             setDistrictId(Number(stored.district_id));
             setDistrict(String(stored.district_id));
           }
-          if (stored.photo_url) setPhotoPreview(stored.photo_url);
+          if (stored.photo_url) setPhotoPreview(resolvePreviewUrl(stored.photo_url));
         }
       }
 
@@ -91,7 +107,7 @@ export default function ArtistOnboarding() {
       return;
     }
 
-    if (!file.type.startsWith('image/')) {
+    if (!file.type || !file.type.startsWith('image/')) {
       setError('Selected file must be an image.');
       return;
     }
@@ -102,7 +118,7 @@ export default function ArtistOnboarding() {
       return;
     }
 
-    // create preview
+    // create preview (blob)
     const previewUrl = URL.createObjectURL(file);
     // revoke previous blob URL if any
     if (photoPreview && photoPreview.startsWith('blob:')) {
@@ -159,7 +175,7 @@ export default function ArtistOnboarding() {
         form.append('photo', photoFile, photoFile.name);
       }
 
-      // include user id? backend should use req.user.id from auth middleware
+      // Debug log (dev)
       if (process.env.NODE_ENV === 'development') {
         // eslint-disable-next-line no-console
         console.log('Submitting onboarding form:', {
@@ -172,73 +188,65 @@ export default function ArtistOnboarding() {
         });
       }
 
-      const response = await axios.post('/artist/onboard', form, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
+      const response = await axios.post('/artistOnboard/onboard', form);
 
       const msg = response?.data?.message || 'Profile saved successfully!';
       setSuccess(msg);
 
-      // Update context and storage: set has_profile true and role artist, and update photo_url if returned
-      const returnedUser = response?.data?.user || {};
-      const returnedPhotoUrl = response?.data?.photo_url || response?.data?.photo || returnedUser.photo_url || null;
+      // Prefer server-provided user + artist to keep client state authoritative
+      const returnedUser = response?.data?.user || null;
+      const returnedArtist = response?.data?.artist || null;
+      const returnedPhotoUrl = response?.data?.photo_url || returnedArtist?.photo_url || returnedUser?.photo_url || null;
 
-      updateUser({ has_profile: true, role: 'artist', photo_url: returnedPhotoUrl || undefined });
-
-      try {
-        // update bb_user
-        const bbUserRaw = localStorage.getItem('bb_user');
-        let bbUser = {};
-        if (bbUserRaw) {
-          try { bbUser = JSON.parse(bbUserRaw); } catch (_) { bbUser = {}; }
-        }
-        bbUser.has_profile = true;
-        bbUser.role = 'artist';
-        bbUser.displayName = displayName.trim();
-        if (returnedPhotoUrl) bbUser.photo_url = returnedPhotoUrl;
-        localStorage.setItem('bb_user', JSON.stringify(bbUser));
-
-        // update bb_auth if present
-        const bbAuthRaw = localStorage.getItem('bb_auth');
-        if (bbAuthRaw) {
-          try {
-            const parsed = JSON.parse(bbAuthRaw);
-            if (parsed && parsed.user) {
-              parsed.user.has_profile = true;
-              parsed.user.role = 'artist';
-              parsed.user.displayName = displayName.trim();
-              if (returnedPhotoUrl) parsed.user.photo_url = returnedPhotoUrl;
-              localStorage.setItem('bb_auth', JSON.stringify(parsed));
-            }
-          } catch (_) {
-            // ignore parse errors
-          }
-        }
-
-        // helper keys
-        localStorage.setItem('userRole', 'artist');
-        if (displayName.trim()) localStorage.setItem('userName', displayName.trim());
-        localStorage.setItem('isLoggedIn', 'true');
-        if (returnedPhotoUrl) localStorage.setItem('photo_url', returnedPhotoUrl);
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn('Failed to update some localStorage keys after onboarding:', e);
+      // Update context user: if server returned user object use it (likely contains has_profile/role)
+      if (returnedUser) {
+        // merge returned user with any existing token in local storage
+        updateUser({ ...returnedUser });
+      } else {
+        // no user returned — apply minimal flags client-side
+        updateUser({ has_profile: true, role: 'artist', photo_url: returnedPhotoUrl || undefined, display_name: displayName.trim() });
       }
 
-      // Navigate after a short moment
+      // Refresh artist profile in context (if server saved one)
+      try {
+        const freshArtist = await fetchArtistProfile();
+        if (freshArtist) {
+          // set photo preview to returned/artist path if available
+          if (freshArtist.photo_url) {
+            setPhotoPreview(resolvePreviewUrl(freshArtist.photo_url));
+          } else if (returnedPhotoUrl) {
+            setPhotoPreview(resolvePreviewUrl(returnedPhotoUrl));
+          }
+        } else if (returnedPhotoUrl) {
+          setPhotoPreview(resolvePreviewUrl(returnedPhotoUrl));
+        }
+      } catch (err) {
+        // ignore fetch errors — we already updated user
+        if (returnedPhotoUrl) setPhotoPreview(resolvePreviewUrl(returnedPhotoUrl));
+      }
+
+      // Navigate after a short moment so user sees success
       setTimeout(() => {
         navigate('/artist/dashboard');
-      }, 900);
+      }, 700);
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('Artist onboarding error:', err, err?.response?.data);
-      const errMsg = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to save profile. Please try again.';
-      setError(errMsg);
-    } finally {
-      setLoading(false);
-    }
+  console.error('Artist onboarding error:', err);
+  // More verbose debug info
+  console.error('Error message:', err.message);
+  if (err.response) {
+    console.error('Response status:', err.response.status);
+    console.error('Response headers:', err.response.headers);
+    console.error('Response body:', err.response.data);
+    setError(err.response.data?.error || err.response.data?.message || String(err.response.data) || err.message);
+  } else if (err.request) {
+    console.error('No response received. Request:', err.request);
+    setError('No response from server. Check your network or server logs.');
+  } else {
+    setError(err.message || 'An error occurred');
+  }
+} finally {
+  setLoading(false);
+}
   };
 
   return (
@@ -344,7 +352,7 @@ export default function ArtistOnboarding() {
                   id="photoInput"
                   type="file"
                   accept="image/*"
-                  onChange={(e) => handleFileSelect(e.target.files[0])}
+                  onChange={(e) => handleFileSelect(e.target.files && e.target.files[0])}
                   style={{ display: 'inline-block' }}
                 />
               </div>
@@ -357,6 +365,10 @@ export default function ArtistOnboarding() {
                     thumbnail
                     style={{ width: 96, height: 96, objectFit: 'cover' }}
                     alt="Preview"
+                    onError={(ev) => {
+                      ev.currentTarget.onerror = null;
+                      ev.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName || user?.username || 'Artist')}&background=0D8ABC&color=fff&size=256`;
+                    }}
                   />
                   <div className="ms-2">
                     <div>
