@@ -8,7 +8,7 @@ router.get('/', controller.listArtists);
 router.get('/:id', controller.getArtistById);
 
 // Ratings sub-route
-router.get('/:id/ratings', ratingsCtrl.getRatingsForArtist);
+router.get('/:id/ratings', ratingsCtrl.getRatingsForArtist); 
 
 module.exports = router;
- 
+  
