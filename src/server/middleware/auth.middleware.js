@@ -6,7 +6,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'devsecret';
 
 // Middleware to authenticate and attach user to req
 module.exports = async function (req, res, next) {
-  try {
+  try { 
     const authHeader = req.headers.authorization || '';
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'Missing or invalid token' });
@@ -15,7 +15,7 @@ module.exports = async function (req, res, next) {
 
     let decoded;
     try {
-      decoded = jwt.verify(token, JWT_SECRET);
+      decoded = jwt.verify(token, JWT_SECRET); 
     } catch (err) {
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
