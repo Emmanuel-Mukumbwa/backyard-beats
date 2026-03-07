@@ -17,7 +17,7 @@ function normalizeRow(r) {
     reviewerName: r.reviewerName || 'Anonymous',
     createdAt: r.created_at || null
   };
-}
+} 
 
 /**
  * GET /ratings/artist/:id
@@ -60,6 +60,7 @@ exports.getRatingsForArtist = async (req, res, next) => {
  *  - Then → recalc artist’s average rating & total reviews
  */
 exports.postRatingForArtist = async (req, res, next) => {
+  console.log('🔥 ratings.postRatingForArtist hit with id:', req.params.id);
   try {
     const artistId = Number(req.params.id);
     if (!artistId) return res.status(400).json({ error: 'Invalid artist id' });
