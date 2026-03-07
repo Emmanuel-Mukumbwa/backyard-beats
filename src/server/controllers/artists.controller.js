@@ -6,14 +6,14 @@ const pool = require('../db').pool;
  * Optional query params: district, q (search by name)
  */
 exports.listArtists = async (req, res, next) => {
-  try {
+    try {
     const params = [];
     let where = 'WHERE 1=1'; 
-
+ 
     if (req.query.district) {
       where += ' AND (district_id = ? OR district = ?)';
       params.push(req.query.district, req.query.district);
-    }
+    } 
     if (req.query.q) {
       where += ' AND display_name LIKE ?';
       params.push(`%${req.query.q}%`);
@@ -39,3 +39,4 @@ exports.getArtistById = async (req, res, next) => {
     next(err);
   }
 };
+   
