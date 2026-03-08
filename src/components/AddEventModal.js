@@ -1,6 +1,6 @@
 // src/components/AddEventModal.jsx
 import React, { useEffect, useState } from 'react';
-import { Modal, Button, Form, Row, Col } from 'react-bootstrap';
+import { Modal, Button, Form, Row, Col, Image } from 'react-bootstrap';
 import axios from '../api/axiosConfig';
 
 export default function AddEventModal({ show, onHide, onSaved, editing = null, districts = [] }) {
@@ -11,9 +11,25 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
   const [venue, setVenue] = useState('');
   const [address, setAddress] = useState('');
   const [ticketUrl, setTicketUrl] = useState('');
-  const [image, setImage] = useState(null);
+  const [image, setImage] = useState(null);            // File object to upload
+  const [imagePreview, setImagePreview] = useState(null); // local preview URL or existing remote url
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+
+  // helper: resolve backend URL for existing image (if editing contains relative path)
+  const resolveBackendUrl = (raw) => {
+    try {
+      const base = (axios && axios.defaults && axios.defaults.baseURL) || process.env.REACT_APP_API_URL || 'http://localhost:3001';
+      const backendBase = String(base).replace(/\/$/, '');
+      if (!raw) return null;
+      if (/^https?:\/\//i.test(raw)) return raw;
+      if (raw.startsWith('/')) return `${backendBase}${raw}`;
+      if (raw.startsWith('uploads/')) return `${backendBase}/${raw}`;
+      return `${backendBase}/uploads/${raw}`;
+    } catch {
+      return raw;
+    }
+  };
 
   useEffect(() => {
     if (editing) {
@@ -24,12 +40,51 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
       setVenue(editing.venue || '');
       setAddress(editing.address || '');
       setTicketUrl(editing.ticket_url || '');
+      // if existing event has an image_url, show it as the preview (remote)
+      const existingImage = editing.image_url || editing.image || editing.imagePath || editing.image_path || null;
+      setImagePreview(existingImage ? resolveBackendUrl(existingImage) : null);
     } else {
       setTitle(''); setDescription(''); setEventDate(''); setDistrictId(''); setVenue(''); setAddress(''); setTicketUrl('');
+      setImagePreview(null);
     }
     setImage(null);
     setError(null);
+
+    // cleanup preview object URLs on unmount/hide
+    return () => {
+      if (imagePreview && image && typeof imagePreview === 'string' && imagePreview.startsWith('blob:')) {
+        URL.revokeObjectURL(imagePreview);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing, show]);
+
+  const handleImageChange = (e) => {
+    const f = e.target.files?.[0] || null;
+    if (!f) {
+      // clear preview only if there's no existing remote image
+      setImage(null);
+      setImagePreview(editing ? (editing.image_url ? resolveBackendUrl(editing.image_url) : null) : null);
+      return;
+    }
+
+    // validate basic image type
+    if (!f.type || !f.type.startsWith('image/')) {
+      setError('Selected file is not an image');
+      return;
+    }
+
+    // create local preview blob URL
+    const previewUrl = URL.createObjectURL(f);
+    // revoke old if it was a blob
+    if (imagePreview && imagePreview.startsWith('blob:')) {
+      try { URL.revokeObjectURL(imagePreview); } catch (e) {}
+    }
+
+    setImage(f);
+    setImagePreview(previewUrl);
+    setError(null);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -44,6 +99,7 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
       fd.append('venue', venue || '');
       fd.append('address', address || '');
       fd.append('ticket_url', ticketUrl || '');
+      // append image file as 'image' field (server expects req.file)
       if (image) fd.append('image', image);
 
       if (editing && editing.id) {
@@ -114,7 +170,26 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
 
           <Form.Group className="mb-3">
             <Form.Label>Image (optional)</Form.Label>
-            <Form.Control type="file" accept="image/*" onChange={e => setImage(e.target.files[0])} />
+            <Form.Control type="file" accept="image/*" onChange={handleImageChange} />
+            {imagePreview && (
+              <div className="mt-3 d-flex align-items-center">
+                <Image
+                  src={imagePreview}
+                  rounded
+                  style={{ width: 160, height: 160, objectFit: 'cover', border: '1px solid #e9ecef' }}
+                  onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(title || 'Event')}&background=eee&color=777&size=128`; }}
+                  alt="Event preview"
+                />
+                <div className="ms-3">
+                  <div className="small text-muted">Preview</div>
+                  <div className="mt-2">
+                    <Button variant="outline-secondary" size="sm" onClick={() => { setImage(null); setImagePreview(editing && editing.image_url ? resolveBackendUrl(editing.image_url) : null); }}>
+                      Remove selection
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </Form.Group>
         </Modal.Body>
 

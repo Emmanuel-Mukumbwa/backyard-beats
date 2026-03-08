@@ -12,13 +12,13 @@ export default function Events() {
     axios.get('/events')
       .then(res => setEvents(res.data))
       .catch(() => setEvents([]))
-      .finally(() => setLoading(false));
+      .finally(() => setLoading(false)); 
   }, []);
 
   return (
     <div>
       <h2 className="mb-3">Upcoming Events</h2>
-      {loading && <div>Loading events...</div>}
+      {loading && <div className="text-muted">Loading events...</div>}
       {!loading && events.length === 0 && <div className="text-muted">No events listed yet.</div>}
       <div>
         {events.map(ev => <EventCard key={ev.id} event={ev} />)}

@@ -57,6 +57,6 @@ export default function MyEvents() {
           </Card.Body>
         </Card>
       ))}
-    </div>
+    </div> 
   );
 }
