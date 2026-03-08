@@ -1,12 +1,19 @@
 // src/components/AudioPlayer.jsx
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect } from 'react';
 import axios from '../api/axiosConfig';
+import { FaPlay, FaPause, FaStepForward, FaStepBackward } from 'react-icons/fa';
+import { Image } from 'react-bootstrap';
 
 /**
- * AudioPlayer (single-file)
- * - Resolves preview paths to backend baseURL (axios.defaults.baseURL)
- * - Inline playback only (no visible backend URL)
- * - Handles previewUrl / preview_url / file_url shapes
+ * AudioPlayer
+ * - Shows artwork for the current track (resolves relative paths to backend base)
+ * - Keeps previous behavior: play/pause, prev/next, progress, duration, error handling
+ *
+ * Props:
+ * - tracks: array of track objects. Supported preview fields:
+ *    preview_url, previewUrl, file_url, file_url
+ *   Supported artwork fields:
+ *    artwork_url, preview_artwork, artworkUrl, cover_url
  */
 export default function AudioPlayer({ tracks = [] }) {
   const audioRef = useRef(null);
@@ -18,6 +25,7 @@ export default function AudioPlayer({ tracks = [] }) {
 
   const current = tracks && tracks.length > 0 ? tracks[currentIndex] : null;
 
+  // backend base (mirror ArtistDashboard / other components)
   const backendBase = (() => {
     try {
       return (axios && axios.defaults && axios.defaults.baseURL) || process.env.REACT_APP_API_URL || 'http://localhost:3001';
@@ -26,48 +34,47 @@ export default function AudioPlayer({ tracks = [] }) {
     }
   })().replace(/\/$/, '');
 
+  // get preview/raw audio path from track object
   const getPreviewRaw = (t) => {
     if (!t) return '';
     return t.previewUrl || t.preview_url || t.file_url || t.preview || '';
   };
 
-  const resolveToBackend = (raw, trackId) => {
-    if (!raw && !trackId) return '';
-    // if trackId present, prefer predictable backend uploads path for that id if your server stores mapping by preview_url.
-    // We won't add a new streaming endpoint; we'll resolve raw paths.
-    if (trackId && !raw) {
-      // fallback to convention: /uploads/tracks/<maybe-existing-filename> - but if you don't store filename, require preview_url
-      return '';
-    }
+  // get artwork raw path
+  const getArtworkRaw = (t) => {
+    if (!t) return '';
+    return t.artwork_url || t.preview_artwork || t.artworkUrl || t.cover_url || t.cover || '';
+  };
+
+  // resolve raw path to absolute URL on backend (handles absolute urls, '/...' and 'uploads/...' and bare filename)
+  const resolveToBackend = (raw) => {
     if (!raw) return '';
-    // absolute URL?
     if (/^https?:\/\//i.test(raw)) return raw;
-    // starts with slash -> treat as absolute path on backend
     if (raw.startsWith('/')) return `${backendBase}${raw}`;
-    // starts with 'uploads/'
     if (raw.startsWith('uploads/')) return `${backendBase}/${raw}`;
-    // otherwise assume it's under uploads/ (filename)
     return `${backendBase}/uploads/${raw}`;
   };
 
+  // load current track into audio element whenever currentIndex or track changes
   useEffect(() => {
     const audio = audioRef.current;
     setError(null);
     setProgress(0);
-    setDuration(current?.duration || 0);
+    setDuration(0);
 
     if (!audio) return;
 
     const raw = getPreviewRaw(current);
-    const src = resolveToBackend(raw, current?.id);
+    const src = resolveToBackend(raw);
 
     if (!src) {
       audio.removeAttribute('src');
       audio.load();
+      setPlaying(false);
       return;
     }
 
-    // set crossOrigin if backend origin differs
+    // set crossOrigin if backend origin differs (helps with CORS/media errors when needed)
     try {
       const backendOrigin = new URL(backendBase).origin;
       if (window.location.origin !== backendOrigin) audio.crossOrigin = 'anonymous';
@@ -79,12 +86,22 @@ export default function AudioPlayer({ tracks = [] }) {
     audio.src = src;
     try {
       audio.load();
+      // if previously playing, attempt to play the new track
+      if (playing) {
+        audio.play().catch(err => {
+          console.warn('Auto-play blocked or failed', err);
+          setPlaying(false);
+        });
+      }
     } catch (e) {
       console.error('audio.load() error', e);
       setError('Unable to load audio metadata (possible CORS or invalid URL).');
+      setPlaying(false);
     }
-  }, [currentIndex, current, backendBase]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex, current?.id, backendBase]);
 
+  // attach audio events
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -98,6 +115,7 @@ export default function AudioPlayer({ tracks = [] }) {
       }
     }
     function onEnd() {
+      // auto advance if possible
       if (currentIndex < tracks.length - 1) {
         setCurrentIndex(i => i + 1);
         setPlaying(true);
@@ -122,7 +140,7 @@ export default function AudioPlayer({ tracks = [] }) {
       audio.removeEventListener('ended', onEnd);
       audio.removeEventListener('error', onError);
     };
-  }, [audioRef, currentIndex, tracks, current]);
+  }, [audioRef, currentIndex, tracks]);
 
   async function togglePlay() {
     const audio = audioRef.current;
@@ -146,59 +164,107 @@ export default function AudioPlayer({ tracks = [] }) {
   function prev() {
     setError(null);
     setCurrentIndex(i => Math.max(0, i - 1));
+    setPlaying(true);
   }
   function next() {
     setError(null);
     setCurrentIndex(i => Math.min(tracks.length - 1, i + 1));
+    setPlaying(true);
   }
+
+  // click a track in the optional mini-list (if you want to show a selectable list later)
+  function selectIndex(i) {
+    if (i < 0 || i >= tracks.length) return;
+    setCurrentIndex(i);
+    setPlaying(true);
+  }
+
+  const artworkRaw = getArtworkRaw(current);
+  const artworkUrl = artworkRaw ? resolveToBackend(artworkRaw) : null;
+  const artworkFallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(current?.title || 'Track')}&background=ddd&color=333&size=256`;
 
   return (
     <div className="card p-3">
       <div className="d-flex align-items-center">
-        <div className="me-3">
-          <button
-            className={`btn btn-sm ${playing ? "btn-danger" : "btn-success"}`}
-            onClick={togglePlay}
-            aria-pressed={playing}
-          >
-            {playing ? "Pause" : "Play"}
-          </button>
+        {/* Artwork */}
+        <div style={{ width: 96, height: 96, flexShrink: 0, marginRight: 16 }}>
+          <Image
+            src={artworkUrl || artworkFallback}
+            rounded
+            style={{ width: 96, height: 96, objectFit: 'cover' }}
+            onError={(e) => {
+              e.currentTarget.onerror = null;
+              e.currentTarget.src = artworkFallback;
+            }}
+            alt={`${current?.title || 'Track'} artwork`}
+          />
         </div>
 
+        {/* Main controls and info */}
         <div className="flex-grow-1">
-          <div className="fw-bold">{current?.title || "No track selected"}</div>
-          <div className="small text-muted">Preview</div>
+          <div className="d-flex align-items-center justify-content-between">
+            <div>
+              <div className="fw-bold">{current?.title || 'No track selected'}</div>
+              <div className="small text-muted">
+                {current?.genre || ''} {current?.duration ? `• ${current.duration}s` : ''}
+              </div>
+            </div>
 
-          <div className="progress mt-2" style={{ height: 6 }}>
-            <div
-              className="progress-bar"
-              role="progressbar"
-              style={{
-                width:
-                  duration && progress ? `${Math.min(100, (progress / duration) * 100)}%` : "0%"
-              }}
-            />
+            <div className="d-flex align-items-center">
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-secondary me-2"
+                onClick={prev}
+                disabled={tracks.length <= 1 || currentIndex === 0}
+                aria-label="Previous"
+              >
+                <FaStepBackward />
+              </button>
+
+              <button
+                type="button"
+                className={`btn btn-sm me-2 ${playing ? 'btn-danger' : 'btn-success'}`}
+                onClick={togglePlay}
+                aria-pressed={playing}
+              >
+                {playing ? <><FaPause className="me-1" /> Pause</> : <><FaPlay className="me-1" /> Play</>}
+              </button>
+
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-secondary"
+                onClick={next}
+                disabled={tracks.length <= 1 || currentIndex === tracks.length - 1}
+                aria-label="Next"
+              >
+                <FaStepForward />
+              </button>
+            </div>
           </div>
 
-          <div className="small mt-1 text-muted">
-            {Math.floor(progress)}s / {duration || current?.duration || 0}s
-          </div>
+          {/* Progress */}
+          <div className="mt-3">
+            <div className="progress" style={{ height: 8 }}>
+              <div
+                className="progress-bar"
+                role="progressbar"
+                style={{
+                  width: duration && progress ? `${Math.min(100, (progress / duration) * 100)}%` : '0%'
+                }}
+              />
+            </div>
 
-          {error && <div className="mt-2 alert alert-danger py-1">{error}</div>}
-        </div>
+            <div className="d-flex justify-content-between small text-muted mt-1">
+              <div>{Math.floor(progress)}s</div>
+              <div>{duration || current?.duration || 0}s</div>
+            </div>
 
-        <div className="ms-3">
-          <div className="btn-group-vertical">
-            <button className="btn btn-outline-secondary btn-sm" onClick={prev}>
-              Prev
-            </button>
-            <button className="btn btn-outline-secondary btn-sm" onClick={next}>
-              Next
-            </button>
+            {error && <div className="mt-2 alert alert-danger py-1">{error}</div>}
           </div>
         </div>
       </div>
 
+      {/* Hidden audio element */}
       <audio ref={audioRef} preload="auto" />
     </div>
   );
