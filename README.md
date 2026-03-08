@@ -1,7 +1,7 @@
 
 # Backyard Beats
 
-Backyard Beats is a full-stack music discovery platform (React + Express + MySQL) focused on showcasing local artists. It includes a React frontend, an Express/Sequelize backend, media uploads, user authentication, artist onboarding, event management, playlists and ratings.
+BackyardBeats is a full-stack music discovery platform (React + Express + MySQL) focused on showcasing local artists. It includes a React frontend, an Express/Sequelize backend, media uploads, user authentication, artist onboarding, event management, playlists and ratings.
 
 ## Quick summary
 
@@ -232,11 +232,4 @@ npm run build
 ```
 
 ---
-
-If you'd like, I can also:
-
-1. Add a short `DEVELOPMENT.md` with step-by-step debug tips (routes to inspect, where to add logs).
-2. Fix the proxy/PORT mismatch automatically (choose which port you prefer) and update `package.json` or `src/server/index.js` accordingly.
-
-Happy to update the README further with more examples (API request examples, screenshots, or a short architecture diagram).
 
