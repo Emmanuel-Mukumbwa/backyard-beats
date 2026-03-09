@@ -1,322 +1,281 @@
+// src/pages/AdminDashboard.js
 import React, { useState, useEffect } from 'react';
-import { Tabs, Tab, Card, Button, Table, Alert, Modal, Form, Row, Col, Badge } from 'react-bootstrap';
+import { Tabs, Tab, Alert, Modal, Form, Button } from 'react-bootstrap';
+import axios from '../api/axiosConfig';
+
+import AnalyticsPanel from '../components/admin/AnalyticsPanel'; 
+import UsersTable from '../components/admin/UsersTable';
+import PendingApprovals from '../components/admin/PendingApprovals';
+import RatingsModeration from '../components/admin/RatingsModeration';
+import SettingsPanel from '../components/admin/SettingsPanel';
 
 export default function AdminDashboard() {
+  /* ---------------- STATE ---------------- */
   const [users, setUsers] = useState([]);
+  const [usersMeta, setUsersMeta] = useState({ page: 1, pages: 1 });
+
   const [pendingArtists, setPendingArtists] = useState([]);
   const [pendingEvents, setPendingEvents] = useState([]);
   const [pendingTracks, setPendingTracks] = useState([]);
+
   const [ratings, setRatings] = useState([]);
   const [analytics, setAnalytics] = useState({});
-  const [settings, setSettings] = useState({ siteName: 'BackyardBeats', maintenanceMode: false });
+
+  const [settings, setSettings] = useState({
+    siteName: 'BackyardBeats',
+    maintenanceMode: false
+  });
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Modals
+  /* modals */
   const [showUserModal, setShowUserModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
-  const [userForm, setUserForm] = useState({ displayName: '', email: '', role: '', banned: false });
+  const [userForm, setUserForm] = useState({
+    displayName: '',
+    email: '',
+    role: 'fan',
+    banned: false
+  });
 
+  /* ---------------- LOAD DATA ---------------- */
   useEffect(() => {
     loadDashboardData();
+    fetchUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadDashboardData() {
     setLoading(true);
     setError(null);
+
+    const endpoints = [
+      { name: 'analytics', url: '/admin/analytics' },
+      { name: 'pendingArtists', url: '/admin/pending/artists' },
+      { name: 'pendingTracks', url: '/admin/pending/tracks' },
+      { name: 'pendingEvents', url: '/admin/pending/events' },
+      { name: 'settings', url: '/admin/settings' },
+      { name: 'ratings', url: '/admin/ratings' } // ratings list
+    ];
+
     try {
-      // Mock data
-      setUsers([
-        { id: 1, username: 'fan1', email: 'fan1@example.com', role: 'fan', banned: false, displayName: 'Fan One' },
-        { id: 2, username: 'artist1', email: 'artist1@example.com', role: 'artist', banned: false, displayName: 'Artist One' },
-        { id: 3, username: 'admin1', email: 'admin1@example.com', role: 'admin', banned: false, displayName: 'Admin One' }
-      ]);
-      setPendingArtists([
-        { id: 1, displayName: 'New Artist', email: 'newartist@example.com', bio: 'New artist bio', submittedAt: '2023-11-01' }
-      ]);
-      setPendingEvents([
-        { id: 1, title: 'New Event', description: 'Event description', event_date: '2023-12-01', artist: 'Artist One', district: 'Lilongwe' }
-      ]);
-      setPendingTracks([
-        { id: 1, title: 'New Track', artist: 'Artist One', genre: 'Hip Hop', submittedAt: '2023-11-01', previewUrl: '/tracks/sample.mp3' },
-        { id: 2, title: 'Another Track', artist: 'Artist Two', genre: 'Reggae', submittedAt: '2023-11-02', previewUrl: '/tracks/sample2.mp3' }
-      ]);
-      setRatings([
-        { id: 1, artist: 'Artist One', reviewer: 'Fan One', stars: 5, comment: 'Great!', createdAt: '2023-11-01' },
-        { id: 2, artist: 'Artist Two', reviewer: 'Fan Two', stars: 2, comment: 'Not good', createdAt: '2023-11-05' }
-      ]);
-      setAnalytics({
-        totalUsers: 150,
-        totalArtists: 25,
-        totalEvents: 10,
-        userGrowth: '+15%',
-        engagementRate: '78%'
+      const results = await Promise.allSettled(endpoints.map(e => axios.get(e.url)));
+
+      const failed = [];
+
+      results.forEach((res, idx) => {
+        const name = endpoints[idx].name;
+        if (res.status === 'fulfilled') {
+          const data = res.value.data;
+          switch (name) {
+            case 'analytics':
+              if (data.analytics) setAnalytics(data.analytics);
+              break;
+            case 'pendingArtists':
+              if (data.pending) setPendingArtists(data.pending);
+              break;
+            case 'pendingTracks':
+              if (data.pending) setPendingTracks(data.pending);
+              break;
+            case 'pendingEvents':
+              if (data.pending) setPendingEvents(data.pending);
+              break;
+            case 'settings':
+              if (data.settings) setSettings(data.settings);
+              break;
+            case 'ratings':
+              if (data.ratings) setRatings(data.ratings);
+              break;
+            default:
+              break;
+          }
+        } else {
+          failed.push(name);
+          console.error(name, res.reason);
+        }
       });
+
+      if (failed.length) {
+        setError(`Failed loading: ${failed.join(', ')}`);
+      }
     } catch (err) {
-      setError(err.message);
+      console.error(err);
+      setError(err.message || 'Unexpected error');
     } finally {
       setLoading(false);
     }
   }
 
+  /* ---------------- USERS ---------------- */
+  const fetchUsers = async (page = 1, limit = 25, q = '') => {
+    try {
+      const res = await axios.get('/admin/users', { params: { page, limit, q } });
+      setUsers(res.data.users || []);
+      setUsersMeta(res.data.meta || {});
+    } catch (err) {
+      console.error('Failed loading users', err);
+      setError('Failed to load users');
+    }
+  };
+
+  const handleBanToggle = async (user, ban) => {
+    try {
+      await axios.post(`/admin/users/${user.id}/ban`, { ban });
+      fetchUsers(usersMeta.page);
+    } catch (err) {
+      console.error(err);
+      setError('Failed to update user status');
+    }
+  };
+
+  const handleSoftDelete = async (user) => {
+    try {
+      await axios.delete(`/admin/users/${user.id}`);
+      fetchUsers(usersMeta.page);
+    } catch (err) {
+      console.error(err);
+      setError('Failed to delete user');
+    }
+  };
+
+  const handleRestore = async (user) => {
+    try {
+      await axios.post(`/admin/users/${user.id}/restore`);
+      fetchUsers(usersMeta.page);
+    } catch (err) {
+      console.error(err);
+      setError('Failed to restore user');
+    }
+  };
+
   const handleUserAction = (user, action) => {
     if (action === 'edit') {
       setSelectedUser(user);
-      setUserForm({ displayName: user.displayName, email: user.email, role: user.role, banned: user.banned });
+      setUserForm({
+        displayName: user.username,
+        email: user.email,
+        role: user.role,
+        banned: !!user.banned
+      });
       setShowUserModal(true);
-    } else if (action === 'ban') {
-      setUsers(users.map(u => u.id === user.id ? { ...u, banned: !u.banned } : u));
     }
   };
 
-  const handleUserSubmit = (e) => {
+  const handleUserSubmit = async (e) => {
     e.preventDefault();
-    setUsers(users.map(u => u.id === selectedUser.id ? { ...u, ...userForm } : u));
-    setShowUserModal(false);
-    setSelectedUser(null);
-  };
+    try {
+      await axios.put(`/admin/users/${selectedUser.id}`, {
+        displayName: userForm.displayName,
+        email: userForm.email,
+        role: userForm.role
+      });
 
-  const approveArtist = (id) => {
-    setPendingArtists(pendingArtists.filter(a => a.id !== id));
-    alert('Artist approved');
-  };
+      if (userForm.banned !== selectedUser.banned) {
+        await handleBanToggle(selectedUser, userForm.banned);
+      }
 
-  const rejectArtist = (id) => {
-    setPendingArtists(pendingArtists.filter(a => a.id !== id));
-    alert('Artist rejected');
-  };
-
-  const approveTrack = (id) => {
-    setPendingTracks(pendingTracks.filter(t => t.id !== id));
-    alert('Track approved');
-  };
-
-  const rejectTrack = (id) => {
-    setPendingTracks(pendingTracks.filter(t => t.id !== id));
-    alert('Track rejected');
-  };
-
-  const approveEvent = (id) => {
-    setPendingEvents(pendingEvents.filter(e => e.id !== id));
-    alert('Event approved');
-  };
-
-  const rejectEvent = (id) => {
-    setPendingEvents(pendingEvents.filter(e => e.id !== id));
-    alert('Event rejected');
-  };
-
-  const moderateRating = (id, action) => {
-    if (action === 'delete') {
-      setRatings(ratings.filter(r => r.id !== id));
-      alert('Rating deleted');
+      fetchUsers(usersMeta.page);
+      setShowUserModal(false);
+      setSelectedUser(null);
+    } catch (err) {
+      console.error(err);
+      setError('Failed updating user');
     }
   };
 
-  const handleSettingsSubmit = (e) => {
-    e.preventDefault();
-    setSettings({ ...settings });
-    setShowSettingsModal(false);
-    alert('Settings updated');
+  /* ---------------- ARTIST / TRACK / EVENT approvals are handled inside PendingApprovals component via passed props (which call API directly) ---------------- */
+
+  /* ---------------- RATINGS (delete via controller) ---------------- */
+  const moderateRating = async (id) => {
+    try {
+      await axios.delete(`/admin/ratings/${id}`);
+      setRatings(prev => prev.filter(r => r.id !== id));
+    } catch (err) {
+      console.error(err);
+      setError('Failed to delete rating');
+    }
   };
 
+  /* ---------------- SETTINGS (handled by SettingsPanel + parent modal) ---------------- */
+  const handleSettingsSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await axios.post('/admin/settings', settings);
+      setShowSettingsModal(false);
+      // reload settings
+      const res = await axios.get('/admin/settings');
+      if (res?.data?.settings) setSettings(res.data.settings);
+    } catch (err) {
+      console.error(err);
+      setError('Failed to update settings');
+    }
+  };
+
+  /* ---------------- RENDER ---------------- */
   if (loading) return <div className="text-center py-5">Loading dashboard...</div>;
-  if (error) return <Alert variant="danger">{error}</Alert>;
 
   return (
     <div>
       <h2 className="mb-4">Admin Dashboard</h2>
-      <Tabs defaultActiveKey="users" id="admin-dashboard-tabs">
+
+      {error && <Alert variant="danger" dismissible onClose={() => setError(null)}>{error}</Alert>}
+
+      <Tabs defaultActiveKey="analytics">
+        <Tab eventKey="analytics" title="Analytics">
+          <AnalyticsPanel analytics={analytics} />
+        </Tab>
+
         <Tab eventKey="users" title="User Management">
-          <div className="mt-3">
-            <Table striped>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Username</th>
-                  <th>Email</th>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map(user => (
-                  <tr key={user.id}>
-                    <td>{user.id}</td>
-                    <td>{user.username}</td>
-                    <td>{user.email}</td>
-                    <td><Badge bg={user.role === 'admin' ? 'danger' : user.role === 'artist' ? 'success' : 'primary'}>{user.role}</Badge></td>
-                    <td>{user.banned ? <Badge bg="danger">Banned</Badge> : <Badge bg="success">Active</Badge>}</td>
-                    <td>
-                      <Button size="sm" onClick={() => handleUserAction(user, 'edit')}>Edit</Button>
-                      <Button size="sm" variant={user.banned ? 'success' : 'danger'} onClick={() => handleUserAction(user, 'ban')}>
-                        {user.banned ? 'Unban' : 'Ban'}
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </div>
+          <UsersTable
+            users={users}
+            onEdit={(u) => handleUserAction(u, 'edit')}
+            onToggleBan={(u, ban) => handleBanToggle(u, ban)}
+            onSoftDelete={(u) => handleSoftDelete(u)}
+            onRestore={(u) => handleRestore(u)}
+            pagination={{
+              page: usersMeta.page,
+              pages: usersMeta.pages,
+              onPageChange: (p) => fetchUsers(p)
+            }}
+          />
         </Tab>
 
         <Tab eventKey="artists" title="Artist Approval">
-          <div className="mt-3">
-            <h5>Pending Artist Approvals</h5>
-            {pendingArtists.length === 0 ? <p>No pending approvals</p> : (
-              pendingArtists.map(artist => (
-                <Card key={artist.id} className="mb-3">
-                  <Card.Body>
-                    <Card.Title>{artist.displayName}</Card.Title>
-                    <Card.Text>{artist.bio}</Card.Text>
-                    <small className="text-muted">Submitted: {artist.submittedAt}</small>
-                    <div className="mt-2">
-                      <Button variant="success" onClick={() => approveArtist(artist.id)}>Approve</Button>
-                      <Button variant="danger" onClick={() => rejectArtist(artist.id)}>Reject</Button>
-                    </div>
-                  </Card.Body>
-                </Card>
-              ))
-            )}
-          </div>
+          <PendingApprovals
+            items={pendingArtists}
+            type="artist"
+            onDone={() => loadDashboardData()}
+          />
         </Tab>
 
         <Tab eventKey="tracks" title="Track Approval">
-          <div className="mt-3">
-            <h5>Pending Track Approvals</h5>
-            {pendingTracks.length === 0 ? <p>No pending approvals</p> : (
-              pendingTracks.map(track => (
-                <Card key={track.id} className="mb-3">
-                  <Card.Body>
-                    <Card.Title>{track.title}</Card.Title>
-                    <Card.Text>Artist: {track.artist} | Genre: {track.genre}</Card.Text>
-                    <small className="text-muted">Submitted: {track.submittedAt}</small>
-                    <div className="mt-2">
-                      <audio controls src={track.previewUrl} className="me-3"></audio>
-                      <Button variant="success" onClick={() => approveTrack(track.id)}>Approve</Button>
-                      <Button variant="danger" onClick={() => rejectTrack(track.id)}>Reject</Button>
-                    </div>
-                  </Card.Body>
-                </Card>
-              ))
-            )}
-          </div>
+          <PendingApprovals
+            items={pendingTracks}
+            type="track"
+            onDone={() => loadDashboardData()}
+          />
         </Tab>
 
         <Tab eventKey="events" title="Event Approval">
-          <div className="mt-3">
-            <h5>Pending Event Approvals</h5>
-            {pendingEvents.length === 0 ? <p>No pending approvals</p> : (
-              pendingEvents.map(event => (
-                <Card key={event.id} className="mb-3">
-                  <Card.Body>
-                    <Card.Title>{event.title}</Card.Title>
-                    <Card.Text>{event.description}</Card.Text>
-                    <small className="text-muted">Date: {event.event_date} | Artist: {event.artist} | District: {event.district}</small>
-                    <div className="mt-2">
-                      <Button variant="success" onClick={() => approveEvent(event.id)}>Approve</Button>
-                      <Button variant="danger" onClick={() => rejectEvent(event.id)}>Reject</Button>
-                    </div>
-                  </Card.Body>
-                </Card>
-              ))
-            )}
-          </div>
+          <PendingApprovals
+            items={pendingEvents}
+            type="event"
+            onDone={() => loadDashboardData()}
+          />
         </Tab>
 
-        <Tab eventKey="moderation" title="Content Moderation">
-          <div className="mt-3">
-            <h5>Moderate Ratings & Comments</h5>
-            <Table striped>
-              <thead>
-                <tr>
-                  <th>Artist</th>
-                  <th>Reviewer</th>
-                  <th>Rating</th>
-                  <th>Comment</th>
-                  <th>Date</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ratings.map(rating => (
-                  <tr key={rating.id}>
-                    <td>{rating.artist}</td>
-                    <td>{rating.reviewer}</td>
-                    <td>{'★'.repeat(rating.stars)}</td>
-                    <td>{rating.comment}</td>
-                    <td>{rating.createdAt}</td>
-                    <td>
-                      <Button size="sm" variant="danger" onClick={() => moderateRating(rating.id, 'delete')}>Delete</Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </div>
-        </Tab>
-
-        <Tab eventKey="analytics" title="Analytics">
-          <div className="mt-3">
-            <Row>
-              <Col md={3}>
-                <Card>
-                  <Card.Body>
-                    <Card.Title>Total Users</Card.Title>
-                    <h3>{analytics.totalUsers}</h3>
-                  </Card.Body>
-                </Card>
-              </Col>
-              <Col md={3}>
-                <Card>
-                  <Card.Body>
-                    <Card.Title>Total Artists</Card.Title>
-                    <h3>{analytics.totalArtists}</h3>
-                  </Card.Body>
-                </Card>
-              </Col>
-              <Col md={3}>
-                <Card>
-                  <Card.Body>
-                    <Card.Title>Total Events</Card.Title>
-                    <h3>{analytics.totalEvents}</h3>
-                  </Card.Body>
-                </Card>
-              </Col>
-              <Col md={3}>
-                <Card>
-                  <Card.Body>
-                    <Card.Title>User Growth</Card.Title>
-                    <h3>{analytics.userGrowth}</h3>
-                  </Card.Body>
-                </Card>
-              </Col>
-            </Row>
-            <Card className="mt-3">
-              <Card.Body>
-                <Card.Title>Engagement Rate</Card.Title>
-                <h3>{analytics.engagementRate}</h3>
-              </Card.Body>
-            </Card>
-          </div>
+        <Tab eventKey="moderation" title="Moderation">
+          <RatingsModeration ratings={ratings} onDelete={moderateRating} />
         </Tab>
 
         <Tab eventKey="settings" title="System Settings">
-          <div className="mt-3">
-            <Button onClick={() => setShowSettingsModal(true)}>Edit Settings</Button>
-            <Card className="mt-3">
-              <Card.Body>
-                <p><strong>Site Name:</strong> {settings.siteName}</p>
-                <p><strong>Maintenance Mode:</strong> {settings.maintenanceMode ? 'Enabled' : 'Disabled'}</p>
-              </Card.Body>
-            </Card>
-          </div>
+          <SettingsPanel settings={settings} onEdit={() => setShowSettingsModal(true)} />
         </Tab>
       </Tabs>
 
-      {/* User Edit Modal */}
+      {/* ---------------- USER EDIT MODAL ---------------- */}
       <Modal show={showUserModal} onHide={() => setShowUserModal(false)}>
         <Modal.Header closeButton>
           <Modal.Title>Edit User</Modal.Title>
@@ -325,21 +284,24 @@ export default function AdminDashboard() {
           <Modal.Body>
             <Form.Group className="mb-3">
               <Form.Label>Display Name</Form.Label>
-              <Form.Control type="text" value={userForm.displayName} onChange={e => setUserForm({...userForm, displayName: e.target.value})} required />
+              <Form.Control value={userForm.displayName} onChange={e => setUserForm({ ...userForm, displayName: e.target.value })} />
             </Form.Group>
+
             <Form.Group className="mb-3">
               <Form.Label>Email</Form.Label>
-              <Form.Control type="email" value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} required />
+              <Form.Control value={userForm.email} onChange={e => setUserForm({ ...userForm, email: e.target.value })} />
             </Form.Group>
+
             <Form.Group className="mb-3">
               <Form.Label>Role</Form.Label>
-              <Form.Select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value})}>
+              <Form.Select value={userForm.role} onChange={e => setUserForm({ ...userForm, role: e.target.value })}>
                 <option value="fan">Fan</option>
                 <option value="artist">Artist</option>
                 <option value="admin">Admin</option>
               </Form.Select>
             </Form.Group>
-            <Form.Check type="checkbox" label="Banned" checked={userForm.banned} onChange={e => setUserForm({...userForm, banned: e.target.checked})} />
+
+            <Form.Check type="checkbox" label="Banned" checked={userForm.banned} onChange={e => setUserForm({ ...userForm, banned: e.target.checked })} />
           </Modal.Body>
           <Modal.Footer>
             <Button variant="secondary" onClick={() => setShowUserModal(false)}>Cancel</Button>
@@ -348,7 +310,7 @@ export default function AdminDashboard() {
         </Form>
       </Modal>
 
-      {/* Settings Modal */}
+      {/* ---------------- SETTINGS MODAL ---------------- */}
       <Modal show={showSettingsModal} onHide={() => setShowSettingsModal(false)}>
         <Modal.Header closeButton>
           <Modal.Title>System Settings</Modal.Title>
@@ -357,9 +319,10 @@ export default function AdminDashboard() {
           <Modal.Body>
             <Form.Group className="mb-3">
               <Form.Label>Site Name</Form.Label>
-              <Form.Control type="text" value={settings.siteName} onChange={e => setSettings({...settings, siteName: e.target.value})} required />
+              <Form.Control value={settings.siteName} onChange={e => setSettings({ ...settings, siteName: e.target.value })} />
             </Form.Group>
-            <Form.Check type="checkbox" label="Maintenance Mode" checked={settings.maintenanceMode} onChange={e => setSettings({...settings, maintenanceMode: e.target.checked})} />
+
+            <Form.Check type="checkbox" label="Maintenance Mode" checked={settings.maintenanceMode} onChange={e => setSettings({ ...settings, maintenanceMode: e.target.checked })} />
           </Modal.Body>
           <Modal.Footer>
             <Button variant="secondary" onClick={() => setShowSettingsModal(false)}>Cancel</Button>
