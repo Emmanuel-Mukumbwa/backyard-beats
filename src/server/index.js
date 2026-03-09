@@ -9,7 +9,7 @@
 const express = require('express');
 const app = express();
 const db = require('./db'); // sequelize instance + pool
-const cors = require('cors');
+const cors = require('cors'); 
 const path = require('path');
 
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:3000';
@@ -47,7 +47,11 @@ app.use('/', require('./routes/ratings.routes'));   // this contains /artist/:id
 app.use('/districts', require('./routes/districts.routes'));
 app.use('/auth', require('./routes/auth.routes'));
 app.use('/favorites', require('./routes/favorites.routes'));
-app.use('/profile', profileRoutes);
+app.use('/profile', profileRoutes); 
+app.use('/fan', require('./routes/fan.routes'));
+app.use('/public', require('./routes/public.routes'));
+app.use('/fan/playlists', require('./routes/fan.playlists.routes'));
+app.use('/admin', require('./routes/admin.routes'));
 
 // Basic health check
 app.get('/health', (req, res) => {
