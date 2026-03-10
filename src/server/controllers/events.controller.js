@@ -1,33 +1,19 @@
-// server/controllers/events.controller.js
+// File: src/server/controllers/events.controller.js
 const pool = require('../db').pool;
 const path = require('path');
 
 const UPLOADS_PREFIX = process.env.UPLOADS_PREFIX || '/uploads';
-// kept for backward compatibility/awareness but we won't rely on it for file URLs
 const EVENT_IMAGE_SUBDIR = path.posix.join('events', 'images');
-
-// local uploads base (filesystem path) — matches how your upload middleware creates folders
 const UPLOAD_BASE = path.join(__dirname, '..', 'uploads');
 
-/**
- * Convert an absolute server filesystem path for an uploaded file into a public URL
- * under the UPLOADS_PREFIX. Handles Windows/posix separators.
- *
- * Example:
- *   filePath = /srv/app/src/server/uploads/events/images/img-1.jpg
- *   -> /uploads/events/images/img-1.jpg
- */
 function publicUrlFromFilePath(filePath) {
   if (!filePath) return null;
   try {
-    // compute path relative to uploads base
     const rel = path.relative(UPLOAD_BASE, filePath);
     if (!rel) return null;
-    // ensure forward-slashes for URL
     const urlPath = rel.split(path.sep).join('/');
     return path.posix.join(UPLOADS_PREFIX, urlPath);
   } catch (err) {
-    // fallback: try to use filename directly under expected subdir
     return null;
   }
 }
@@ -39,42 +25,91 @@ function normalizeEventRow(row) {
     description: row.description || null,
     event_date: row.event_date || null,
     district_id: row.district_id ?? null,
+    district_name: row.district_name || null,
     venue: row.venue || null,
     address: row.address || null,
     ticket_url: row.ticket_url || row.ticketUrl || null,
-    image_url: row.image_url || row.imageUrl || null,
+    image_url: row.image_url || row.imageUrl || row.photo_url || null,
     artist_id: row.artist_id ?? null,
-    createdAt: row.created_at || row.createdAt || null
+    createdAt: row.created_at || row.createdAt || null,
+    // include approval meta for dashboard
+    is_approved: !!row.is_approved,
+    is_rejected: !!row.is_rejected,
+    rejection_reason: row.rejection_reason || null,
+    approved_at: row.approved_at || null,
+    rejected_at: row.rejected_at || null
   };
 }
 
-/**
- * Helper: fetch the artist row for the currently authenticated user.
- * Returns the artist row or null if not found.
- */
+function isAdminIncludeUnapproved(req) {
+  return !!(req.user && req.user.role === 'admin' && req.query.include_unapproved === '1');
+}
+
 async function getArtistForUser(userId) {
   const [rows] = await pool.query('SELECT * FROM artists WHERE user_id = ? LIMIT 1', [userId]);
   return rows && rows.length ? rows[0] : null;
 }
 
+async function getUserRow(userId) {
+  if (!userId) return null;
+  const [rows] = await pool.query('SELECT id, username, banned, deleted_at FROM users WHERE id = ? LIMIT 1', [userId]);
+  return (rows && rows[0]) || null;
+}
+
+/**
+ * Public events listing — only returns approved events from approved artists and active users
+ */
 exports.listPublicEvents = async (req, res, next) => {
   try {
-    // Optional query filters: district, from, to, q
     const { district, from, to, q } = req.query;
-    let sql = `SELECT e.*, a.display_name AS artist_display_name, a.photo_url AS artist_photo
-               FROM events e
-               LEFT JOIN artists a ON e.artist_id = a.id
-               WHERE 1=1`;
+    const adminOverride = isAdminIncludeUnapproved(req);
+
+    let sql = `
+      SELECT e.*,
+             d.name AS district_name,
+             a.display_name AS artist_display_name,
+             a.photo_url AS artist_photo,
+             a.is_approved AS artist_is_approved,
+             a.is_rejected AS artist_is_rejected,
+             u.deleted_at AS user_deleted_at,
+             u.banned AS user_banned
+      FROM events e
+      LEFT JOIN districts d ON e.district_id = d.id
+      LEFT JOIN artists a ON e.artist_id = a.id
+      LEFT JOIN users u ON a.user_id = u.id
+      WHERE 1=1
+    `;
     const params = [];
-    if (district) {
-      sql += ' AND e.district_id = ?'; params.push(district);
-    }
+
+    if (district) { sql += ' AND e.district_id = ?'; params.push(district); }
     if (from) { sql += ' AND e.event_date >= ?'; params.push(from); }
     if (to) { sql += ' AND e.event_date <= ?'; params.push(to); }
     if (q) { sql += ' AND (e.title LIKE ? OR e.description LIKE ?)'; params.push(`%${q}%`, `%${q}%`); }
+
+    if (!adminOverride) {
+      sql += ' AND e.is_approved = 1';
+      sql += ' AND a.is_approved = 1';
+      sql += ' AND a.is_rejected = 0';
+      sql += ' AND u.deleted_at IS NULL';
+      sql += ' AND u.banned = 0';
+    }
+
     sql += ' ORDER BY e.event_date ASC LIMIT 500';
+
     const [rows] = await pool.query(sql, params);
-    const events = (rows || []).map(normalizeEventRow);
+
+    const events = (rows || []).map(r => {
+      const ev = normalizeEventRow(r);
+      if (adminOverride) {
+        ev.artist = {
+          display_name: r.artist_display_name,
+          photo: r.artist_photo,
+          is_approved: !!r.artist_is_approved,
+          is_rejected: !!r.artist_is_rejected
+        };
+      }
+      return ev;
+    });
     return res.json(events);
   } catch (err) {
     next(err);
@@ -86,14 +121,50 @@ exports.getEventDetail = async (req, res, next) => {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: 'Invalid event id' });
 
+    const adminOverride = isAdminIncludeUnapproved(req);
+
     const [rows] = await pool.query(
-      `SELECT e.*, a.display_name AS artist_display_name, a.photo_url AS artist_photo
-       FROM events e LEFT JOIN artists a ON e.artist_id = a.id WHERE e.id = ? LIMIT 1`,
+      `SELECT e.*,
+              d.name AS district_name,
+              a.display_name AS artist_display_name,
+              a.photo_url AS artist_photo,
+              a.is_approved AS artist_is_approved,
+              a.is_rejected AS artist_is_rejected,
+              u.deleted_at AS user_deleted_at,
+              u.banned AS user_banned
+       FROM events e
+       LEFT JOIN districts d ON e.district_id = d.id
+       LEFT JOIN artists a ON e.artist_id = a.id
+       LEFT JOIN users u ON a.user_id = u.id
+       WHERE e.id = ?
+       LIMIT 1`,
       [id]
     );
+
     if (!rows || rows.length === 0) return res.status(404).json({ error: 'Event not found' });
 
-    const ev = normalizeEventRow(rows[0]);
+    const row = rows[0];
+
+    // Visibility checks for public detail
+    if (!adminOverride) {
+      if (!row.is_approved) {
+        return res.status(403).json({ status: 'pending', message: 'Event awaiting approval.' });
+      }
+      if (!row.artist_is_approved) {
+        return res.status(403).json({ status: 'pending', message: 'Artist profile not approved.' });
+      }
+      if (row.artist_is_rejected) {
+        return res.status(403).json({ status: 'rejected', message: 'Artist profile rejected.' });
+      }
+      if (row.user_deleted_at) {
+        return res.status(410).json({ status: 'deleted', message: 'Artist account deleted.' });
+      }
+      if (row.user_banned) {
+        return res.status(403).json({ status: 'banned', message: 'Artist account banned.' });
+      }
+    }
+
+    const ev = normalizeEventRow(row);
 
     // include RSVP counts (optional)
     const [rRows] = await pool.query(
@@ -103,6 +174,15 @@ exports.getEventDetail = async (req, res, next) => {
     const counts = {};
     (rRows || []).forEach(r => { counts[r.status] = Number(r.cnt); });
     ev.rsvp_counts = counts;
+
+    if (adminOverride) {
+      ev.artist = {
+        display_name: row.artist_display_name,
+        photo: row.artist_photo,
+        is_approved: !!row.artist_is_approved,
+        is_rejected: !!row.artist_is_rejected
+      };
+    }
 
     return res.json(ev);
   } catch (err) {
@@ -115,12 +195,22 @@ exports.listEvents = async (req, res, next) => {
     const userId = req.user && req.user.id;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
-    const artist = await getArtistForUser(userId);
-    if (!artist) {
-      return res.json([]); // no artist yet -> no events
-    }
+    const userRow = await getUserRow(userId);
+    if (!userRow) return res.status(401).json({ error: 'User not found' });
+    if (userRow.deleted_at) return res.status(410).json({ status: 'deleted', message: 'Account deleted' });
+    if (userRow.banned) return res.status(403).json({ status: 'banned', message: 'Account banned' });
 
-    const [rows] = await pool.query('SELECT * FROM events WHERE artist_id = ? ORDER BY event_date DESC', [artist.id]);
+    const artist = await getArtistForUser(userId);
+    if (!artist) return res.json([]); // not an artist
+
+    // Allow owner to view their events even if artist is pending/rejected.
+    // Keep adminOverride for admins to view everything via query param.
+    const adminOverride = isAdminIncludeUnapproved(req);
+
+    const [rows] = await pool.query(
+      `SELECT e.*, d.name AS district_name FROM events e LEFT JOIN districts d ON e.district_id = d.id WHERE e.artist_id = ? ORDER BY event_date DESC`,
+      [artist.id]
+    );
     const normalized = (rows || []).map(normalizeEventRow);
     return res.json(normalized);
   } catch (err) {
@@ -133,17 +223,23 @@ exports.createEvent = async (req, res, next) => {
     const userId = req.user && req.user.id;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
+    const userRow = await getUserRow(userId);
+    if (!userRow) return res.status(401).json({ error: 'User not found' });
+    if (userRow.deleted_at) return res.status(410).json({ status: 'deleted', message: 'Account deleted' });
+    if (userRow.banned) return res.status(403).json({ status: 'banned', message: 'Account banned' });
+
     const artist = await getArtistForUser(userId);
-    if (!artist) {
-      return res.status(400).json({ error: 'You must create an artist profile before creating events.' });
+    if (!artist) return res.status(400).json({ error: 'You must create an artist profile before creating events.' });
+
+    const adminOverride = isAdminIncludeUnapproved(req);
+    if (!adminOverride) {
+      if (artist.is_rejected) return res.status(403).json({ status: 'rejected', message: 'Artist profile rejected.' });
+      if (!artist.is_approved) return res.status(403).json({ status: 'pending_verification', message: 'Artist profile pending verification.' });
     }
 
-    // image handled by multer single('image') -> available as req.file
     const imageFile = req.file;
-    // build public URL from actual saved file path (works regardless of which storage wrote it)
     const imageUrl = imageFile ? publicUrlFromFilePath(imageFile.path) : null;
 
-    // Gather fields from body
     const title = req.body.title ? String(req.body.title).trim() : null;
     const description = typeof req.body.description !== 'undefined' ? String(req.body.description) : null;
     const event_date = typeof req.body.event_date !== 'undefined' && req.body.event_date !== '' ? req.body.event_date : null;
@@ -157,7 +253,6 @@ exports.createEvent = async (req, res, next) => {
 
     if (!title) return res.status(400).json({ error: 'Event title is required' });
 
-    // Detect existing columns in events table
     const [cols] = await pool.query('SHOW COLUMNS FROM events');
     const colNames = (cols || []).map(c => String(c.Field));
 
@@ -173,7 +268,7 @@ exports.createEvent = async (req, res, next) => {
     if (venue && colNames.includes('venue')) { fields.push('venue'); vals.push(venue); }
     if (address && colNames.includes('address')) { fields.push('address'); vals.push(address); }
     if (ticket_url && colNames.includes('ticket_url')) { fields.push('ticket_url'); vals.push(ticket_url); }
-    // image columns: image_url or photo_url etc.
+
     const imageCol = colNames.includes('image_url') ? 'image_url' : (colNames.includes('imageUrl') ? 'imageUrl' : (colNames.includes('photo_url') ? 'photo_url' : null));
     if (imageUrl && imageCol) { fields.push(imageCol); vals.push(imageUrl); }
 
@@ -200,30 +295,36 @@ exports.updateEvent = async (req, res, next) => {
     const userId = req.user && req.user.id;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
+    const userRow = await getUserRow(userId);
+    if (!userRow) return res.status(401).json({ error: 'User not found' });
+    if (userRow.deleted_at) return res.status(410).json({ status: 'deleted', message: 'Account deleted' });
+    if (userRow.banned) return res.status(403).json({ status: 'banned', message: 'Account banned' });
+
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: 'Invalid event id' });
 
-    // Get artist for user
     const artist = await getArtistForUser(userId);
     if (!artist) return res.status(403).json({ error: 'Artist profile not found or you are not authorized' });
 
-    // Ensure event belongs to this artist
     const [existing] = await pool.query('SELECT * FROM events WHERE id = ? LIMIT 1', [id]);
     if (!existing || existing.length === 0) return res.status(404).json({ error: 'Event not found' });
     const evRow = existing[0];
-    if (Number(evRow.artist_id) !== Number(artist.id)) {
+    if (Number(evRow.artist_id) !== Number(artist.id) && !(req.user && req.user.role === 'admin')) {
       return res.status(403).json({ error: 'Not authorized to update this event' });
     }
 
-    // image file (if uploaded)
+    const adminOverride = isAdminIncludeUnapproved(req);
+    if (!adminOverride) {
+      if (artist.is_rejected) return res.status(403).json({ status: 'rejected', message: 'Artist profile rejected.' });
+      if (!artist.is_approved) return res.status(403).json({ status: 'pending_verification', message: 'Artist profile pending verification.' });
+    }
+
     const imageFile = req.file;
     const imageUrl = imageFile ? publicUrlFromFilePath(imageFile.path) : null;
 
-    // gather potential updates:
     const updates = [];
     const vals = [];
 
-    // detect columns
     const [cols] = await pool.query('SHOW COLUMNS FROM events');
     const colNames = (cols || []).map(c => String(c.Field));
 
@@ -235,7 +336,6 @@ exports.updateEvent = async (req, res, next) => {
     if (typeof req.body.address !== 'undefined' && colNames.includes('address')) { updates.push('address = ?'); vals.push(req.body.address); }
     if (typeof req.body.ticket_url !== 'undefined' && colNames.includes('ticket_url')) { updates.push('ticket_url = ?'); vals.push(req.body.ticket_url); }
 
-    // image column resolution
     const imageCol = colNames.includes('image_url') ? 'image_url' : (colNames.includes('imageUrl') ? 'imageUrl' : (colNames.includes('photo_url') ? 'photo_url' : null));
     if (imageUrl && imageCol) { updates.push(`${imageCol} = ?`); vals.push(imageUrl); }
 
@@ -248,6 +348,22 @@ exports.updateEvent = async (req, res, next) => {
     vals.push(id);
     const sql = `UPDATE events SET ${updates.join(', ')} WHERE id = ?`;
     await pool.query(sql, vals);
+
+    // If a non-admin user edited an already-approved event, revert it to pending approval.
+    // Admin edits (adminOverride === true) do not change approval status automatically.
+    try {
+      const wasApproved = Number(evRow.is_approved) === 1;
+      if (wasApproved && !adminOverride) {
+        await pool.query(
+          `UPDATE events SET is_approved = 0, is_rejected = 0, approved_at = NULL, rejected_at = NULL, rejection_reason = NULL WHERE id = ?`,
+          [id]
+        );
+      }
+    } catch (e) {
+      // Non-fatal: log and continue; we still return the updated row below.
+      // If you have a logger, replace console.error with your logger.
+      console.error('Failed to reset approval state after edit:', e);
+    }
 
     const [rows2] = await pool.query('SELECT * FROM events WHERE id = ? LIMIT 1', [id]);
     const updated = rows2[0] ? normalizeEventRow(rows2[0]) : null;
@@ -262,16 +378,20 @@ exports.deleteEvent = async (req, res, next) => {
     const userId = req.user && req.user.id;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
+    const userRow = await getUserRow(userId);
+    if (!userRow) return res.status(401).json({ error: 'User not found' });
+    if (userRow.deleted_at) return res.status(410).json({ status: 'deleted', message: 'Account deleted' });
+    if (userRow.banned) return res.status(403).json({ status: 'banned', message: 'Account banned' });
+
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: 'Invalid event id' });
 
     const artist = await getArtistForUser(userId);
     if (!artist) return res.status(403).json({ error: 'Artist profile not found or you are not authorized' });
 
-    // ensure event belongs to this artist
     const [existing] = await pool.query('SELECT * FROM events WHERE id = ? LIMIT 1', [id]);
     if (!existing || existing.length === 0) return res.status(404).json({ error: 'Event not found' });
-    if (Number(existing[0].artist_id) !== Number(artist.id)) {
+    if (Number(existing[0].artist_id) !== Number(artist.id) && !(req.user && req.user.role === 'admin')) {
       return res.status(403).json({ error: 'Not authorized to delete this event' });
     }
 
