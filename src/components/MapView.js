@@ -110,3 +110,4 @@ MapView.propTypes = {
   artists: PropTypes.array,
   onMarkerClick: PropTypes.func
 };
+ 
