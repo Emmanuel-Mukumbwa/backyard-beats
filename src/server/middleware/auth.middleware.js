@@ -5,7 +5,7 @@ const pool = require('../db').pool;
 const JWT_SECRET = process.env.JWT_SECRET || 'devsecret';
 
 // Middleware to authenticate and attach user to req
-module.exports = async function (req, res, next) {
+module.exports = async function (req, res, next) { 
   try { 
     const authHeader = req.headers.authorization || '';
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
