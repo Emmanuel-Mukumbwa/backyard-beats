@@ -71,7 +71,7 @@ export const AuthProvider = ({ children }) => {
   // Fetch artist profile for currently authenticated user (if any)
   const fetchArtistProfile = useCallback(async () => {
     try {
-      const res = await axios.get('/artist/me');
+      const res = await axios.get('/profile/me');
       if (res?.data?.artist) {
         setArtist(res.data.artist);
         return res.data.artist;
