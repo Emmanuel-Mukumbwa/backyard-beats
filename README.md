@@ -14,7 +14,7 @@ BackyardBeats is a full-stack music discovery platform (React + Express + MySQL)
 
 1. Prerequisites
 2. Installation
-3. Environment variables
+3. Environment variables 
 4. Running the app (development)
 5. Production / build
 6. Project structure (short)
