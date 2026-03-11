@@ -6,7 +6,7 @@ const controller = require('../controllers/artistOnboard.controller');
 const { uploadFields } = require('../middleware/upload');
 
 // Protect all onboarding endpoints
-router.use(auth);
+router.use(auth); 
 
 // POST /artist/onboard  -> expects field "photo" (image) in multipart/form-data
 // Using uploadFields so we accept field name "photo" (and can accept more fields later)
