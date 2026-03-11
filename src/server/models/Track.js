@@ -8,7 +8,7 @@ const Track = sequelize.define('Track', {
   preview_url: DataTypes.STRING,
   duration: DataTypes.INTEGER,
 }, {
-  tableName: 'tracks',
+  tableName: 'tracks', 
   timestamps: false,
 });
 
