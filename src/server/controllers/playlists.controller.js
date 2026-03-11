@@ -247,7 +247,7 @@ exports.deletePlaylist = async (req, res, next) => {
     return res.json({ message: 'Playlist deleted' });
   } catch (err) {
     next(err);
-  }
+  } 
 };
 
 /* -------------------------
@@ -289,7 +289,7 @@ exports.addTrackToPlaylist = async (req, res, next) => {
       const maxpos = (maxRows && maxRows[0] && typeof maxRows[0].maxpos === 'number') ? maxRows[0].maxpos : -1;
       position = maxpos + 1;
     }
-
+ 
     try {
       await pool.query('INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (?, ?, ?)', [playlistId, trackId, position]);
     } catch (e) {
