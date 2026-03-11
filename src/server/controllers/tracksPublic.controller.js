@@ -88,7 +88,7 @@ exports.getNewReleases = async (req, res, next) => {
       LEFT JOIN artists a ON t.artist_id = a.id
       LEFT JOIN users u ON a.user_id = u.id
       WHERE t.is_approved = 1
-        AND a.is_approved = 1
+        AND a.is_approved = 1 
         AND a.is_rejected = 0
         AND u.deleted_at IS NULL
         AND u.banned = 0
