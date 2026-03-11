@@ -181,6 +181,7 @@ exports.getArtistById = async (req, res, next) => {
          a.*,
          u.id AS user_id,
          u.username,
+         u.created_at AS user_created_at,
          u.banned,
          u.deleted_at,
          u.district_id AS user_district_id,
@@ -293,6 +294,23 @@ exports.getArtistById = async (req, res, next) => {
       rejection_reason: ev.rejection_reason || null
     }));
 
+    // compute events_count (active events returned)
+    const events_count = Array.isArray(events) ? events.length : 0;
+
+    // RATINGS: fetch total reviews and average rating from ratings table
+    const [ratingRows] = await pool.query(
+      `SELECT COUNT(*) AS total_reviews, AVG(rating) AS avg_rating
+       FROM ratings
+       WHERE artist_id = ?`,
+      [artist.id]
+    );
+
+    const ratingsData = (ratingRows && ratingRows[0]) ? ratingRows[0] : { total_reviews: 0, avg_rating: null };
+    const total_reviews = Number(ratingsData.total_reviews || 0);
+    const avg_rating_value = (ratingsData.avg_rating !== null && ratingsData.avg_rating !== undefined)
+      ? Number(Number(ratingsData.avg_rating).toFixed(2))
+      : null;
+
     // Artist application status
     if (artist.is_approved || adminOverride) {
       // Approved -> return full artist payload for public view
@@ -307,16 +325,20 @@ exports.getArtistById = async (req, res, next) => {
         district_name: artist.district_name || null,
         genres,
         moods,
-        avg_rating: artist.avg_rating,
+        // prefer computed avg_rating from ratings table, fallback to artist.avg_rating if present
+        avg_rating: avg_rating_value !== null ? avg_rating_value : (artist.avg_rating || null),
+        total_reviews,
         follower_count: artist.follower_count,
         has_upcoming_event: bool(artist.has_upcoming_event),
         approved_at: artist.approved_at,
         user: {
           id: artist.user_id,
-          username: artist.username
+          username: artist.username,
+          created_at: artist.user_created_at || null
         },
         tracks, // visibility applied
-        events  // visibility applied
+        events, // visibility applied
+        events_count
       };
 
       if (adminOverride) {
@@ -337,7 +359,11 @@ exports.getArtistById = async (req, res, next) => {
         rejection_reason: artist.rejection_reason || null,
         // include tracks/events for owner/admin only
         tracks: (adminOverride || isOwnerRequest) ? tracks : undefined,
-        events: (adminOverride || isOwnerRequest) ? events : undefined
+        events: (adminOverride || isOwnerRequest) ? events : undefined,
+        events_count: (adminOverride || isOwnerRequest) ? events_count : undefined,
+        // ratings visible to owner/admin when profile is rejected
+        total_reviews: (adminOverride || isOwnerRequest) ? total_reviews : undefined,
+        avg_rating: (adminOverride || isOwnerRequest) ? avg_rating_value : undefined
       });
     }
 
@@ -347,7 +373,11 @@ exports.getArtistById = async (req, res, next) => {
       message: 'Artist profile is pending verification. It will be visible once approved.',
       // owner/admin can still see tracks/events
       tracks: (adminOverride || isOwnerRequest) ? tracks : undefined,
-      events: (adminOverride || isOwnerRequest) ? events : undefined
+      events: (adminOverride || isOwnerRequest) ? events : undefined,
+      events_count: (adminOverride || isOwnerRequest) ? events_count : undefined,
+      // ratings visible to owner/admin when profile is pending
+      total_reviews: (adminOverride || isOwnerRequest) ? total_reviews : undefined,
+      avg_rating: (adminOverride || isOwnerRequest) ? avg_rating_value : undefined
     });
   } catch (err) {
     next(err);
