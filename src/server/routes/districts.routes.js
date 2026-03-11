@@ -9,3 +9,4 @@ router.put('/:id', districtsController.update);
 router.delete('/:id', districtsController.remove);
 
 module.exports = router;
+ 
