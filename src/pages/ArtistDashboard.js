@@ -1,4 +1,3 @@
-// src/pages/ArtistDashboard.jsx
 import React, { useState, useEffect, useContext } from 'react';
 import {
   Tabs,
@@ -6,7 +5,6 @@ import {
   Card,
   Button,
   Alert,
-  Table,
   Row,
   Col,
   Image,
@@ -16,24 +14,30 @@ import {
 import { useNavigate } from 'react-router-dom';
 import axios from '../api/axiosConfig';
 import { AuthContext } from '../context/AuthContext';
-import AudioPlayer from '../components/AudioPlayer'; 
 import RatingsList from '../components/RatingsList';
-import DISTRICTS from '../data/districts';
+import ToastMessage from '../components/ToastMessage';
+import LoadingSpinner from '../components/LoadingSpinner';
 import AddTrackModal from '../components/AddTrackModal';
 import AddEventModal from '../components/AddEventModal';
 
-// icons
-import { FaMusic, FaCalendarAlt, FaChartLine, FaPlus, FaEdit, FaTrash, FaUserCircle } from 'react-icons/fa';
+// new component imports
+import TracksPanel from '../components/artist/TracksPanel';
+import EventsPanel from '../components/artist/EventsPanel';
 
-const GENRES = ["Afropop", "Gospel", "Hip-hop", "R&B", "Reggae", "Highlife", "Traditional", "Dancehall", "Jazz", "Blues", "Electronic"];
+// icons
+import { FaMusic, FaCalendarAlt, FaChartLine, FaPlus, FaEdit, FaUserCircle } from 'react-icons/fa';
 
 export default function ArtistDashboard() {
   const navigate = useNavigate();
   const { user } = useContext(AuthContext);
+
   const [artist, setArtist] = useState(null);
   const [tracks, setTracks] = useState([]);
   const [events, setEvents] = useState([]);
   const [ratings, setRatings] = useState([]);
+  const [metaGenres, setMetaGenres] = useState([]);
+  const [metaMoods, setMetaMoods] = useState([]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -43,49 +47,214 @@ export default function ArtistDashboard() {
   const [editingTrack, setEditingTrack] = useState(null);
   const [editingEvent, setEditingEvent] = useState(null);
 
+  // Toast state (re-usable ToastMessage)
+  const [toast, setToast] = useState({ show: false, message: '', variant: 'warning', delay: 5000 });
+
   useEffect(() => {
     loadDashboardData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line
   }, []);
 
+  // helper: build backend base
+  const backendBase = (() => {
+    try {
+      return (axios && axios.defaults && axios.defaults.baseURL) || process.env.REACT_APP_API_URL || 'http://localhost:3001';
+    } catch {
+      return process.env.REACT_APP_API_URL || 'http://localhost:3001';
+    }
+  })().replace(/\/$/, '');
+
+  const resolveToBackend = (raw) => {
+    if (!raw) return '';
+    if (/^https?:\/\//i.test(raw)) return raw;
+    if (raw.startsWith('/')) return `${backendBase}${raw}`;
+    if (raw.startsWith('uploads/')) return `${backendBase}/${raw}`;
+    return `${backendBase}/uploads/${raw}`;
+  };
+
+  // extract event image raw helper (keeps compatibility with different field names)
+  const getEventImageRaw = (ev) => {
+    if (!ev) return null;
+    return ev.image_url || ev.image || ev.cover_url || ev.photo || ev.imagePath || ev.image_path || null;
+  };
+  const resolveEventImage = (ev) => {
+    const raw = getEventImageRaw(ev);
+    return raw ? resolveToBackend(raw) : null;
+  };
+
+  // determine artist account status
+  function computeArtistStatus(a) {
+    if (!a) return 'unknown';
+    if (a.user && a.user.deleted_at) return 'deleted';
+    if (a.user && a.user.banned) return 'banned';
+    if (a.is_rejected) return 'rejected';
+    if (!a.is_approved) return 'pending';
+    return 'approved';
+  }
+
+  // friendly label & badge for status
+  function statusBadge(status) {
+    switch (status) {
+      case 'approved': return <Badge bg="success">Approved</Badge>;
+      case 'pending': return <Badge bg="warning" className="text-dark">Pending verification</Badge>;
+      case 'rejected': return <Badge bg="danger">Rejected</Badge>;
+      case 'banned': return <Badge bg="danger">Banned</Badge>;
+      case 'deleted': return <Badge bg="secondary">Deleted</Badge>;
+      default: return <Badge bg="secondary">Unknown</Badge>;
+    }
+  }
+
+  // Convert artist.genres to array of names in flexible ways
+  function extractGenreNames(a) {
+    if (!a) return [];
+    if (Array.isArray(a.genres) && a.genres.length > 0 && typeof a.genres[0] === 'object') {
+      return a.genres.map(g => g.name);
+    }
+    if (Array.isArray(a.genres) && a.genres.length > 0 && (typeof a.genres[0] === 'number' || /^\d+$/.test(String(a.genres[0])))) {
+      return a.genres.map(id => {
+        const m = metaGenres.find(x => Number(x.id) === Number(id));
+        return m ? m.name : String(id);
+      });
+    }
+    if (Array.isArray(a.genres) && a.genres.length > 0) {
+      return a.genres.map(String);
+    }
+    if (a.genre) return [String(a.genre)];
+    return [];
+  }
+
+  function extractMoodNames(a) {
+    if (!a) return [];
+    if (Array.isArray(a.moods) && a.moods.length > 0 && typeof a.moods[0] === 'object') {
+      return a.moods.map(m => m.name);
+    }
+    if (Array.isArray(a.moods) && a.moods.length > 0 && (typeof a.moods[0] === 'number' || /^\d+$/.test(String(a.moods[0])))) {
+      return a.moods.map(id => {
+        const m = metaMoods.find(x => Number(x.id) === Number(id));
+        return m ? m.name : String(id);
+      });
+    }
+    if (Array.isArray(a.moods) && a.moods.length > 0) {
+      return a.moods.map(String);
+    }
+    if (a.mood) return [String(a.mood)];
+    return [];
+  }
+
+  // load meta, profile, tracks, events, ratings
   async function loadDashboardData() {
     setLoading(true);
     setError(null);
     try {
-      const [artistRes, tracksRes, eventsRes] = await Promise.all([
-        axios.get('/profile/me'),
-        axios.get('/tracks'),
-        axios.get('/events'),
+      const [gRes, mRes, profileRes] = await Promise.allSettled([
+        axios.get('/meta/genres'),
+        axios.get('/meta/moods'),
+        axios.get('/profile/me')
       ]);
 
-      const artistData = artistRes.data.artist || null;
+      if (gRes.status === 'fulfilled') setMetaGenres(Array.isArray(gRes.value.data) ? gRes.value.data : []);
+      if (mRes.status === 'fulfilled') setMetaMoods(Array.isArray(mRes.value.data) ? mRes.value.data : []);
+
+      let artistData = null;
+      if (profileRes.status === 'fulfilled' && profileRes.value.data && profileRes.value.data.artist) {
+        artistData = profileRes.value.data.artist;
+        artistData.is_approved = !!artistData.is_approved;
+        artistData.is_rejected = !!artistData.is_rejected;
+      }
       setArtist(artistData);
 
-      // tracks/events endpoints return only artist-owned items (as implemented server-side)
-      setTracks(Array.isArray(tracksRes.data) ? tracksRes.data : []);
-      setEvents(Array.isArray(eventsRes.data) ? eventsRes.data : []);
+      if (artistData && artistData.id) {
+        const [tracksRes, eventsRes] = await Promise.allSettled([axios.get('/tracks'), axios.get('/events')]);
 
-      // ratings for artist
-      if (artistData?.id) {
-        const r = await axios.get(`/artists/${artistData.id}/ratings`);
-        setRatings(Array.isArray(r.data) ? r.data : []);
+        setTracks(tracksRes.status === 'fulfilled' && Array.isArray(tracksRes.value.data) ? tracksRes.value.data : []);
+        setEvents(eventsRes.status === 'fulfilled' && Array.isArray(eventsRes.value.data) ? eventsRes.value.data : []);
+
+        try {
+          const r = await axios.get(`/artists/${artistData.id}/ratings`);
+          setRatings(Array.isArray(r.data) ? r.data : []);
+        } catch {
+          setRatings([]);
+        }
       } else {
+        setTracks([]);
+        setEvents([]);
         setRatings([]);
       }
     } catch (err) {
-      setError(err.response?.data?.error || err.message || 'Failed to load dashboard');
+      // eslint-disable-next-line no-console
+      console.error('loadDashboardData error', err);
+      setError('Failed to load dashboard. Try refreshing the page.');
     } finally {
       setLoading(false);
     }
   }
 
-  const onTrackSaved = (savedTrack) => {
+  // helpers for Add Track/Event: check if artist is allowed to create
+  const artistStatus = computeArtistStatus(artist);
+
+  function showRestrictedToast(message, delay = 5000, variant = 'warning') {
+    setToast({ show: true, message, variant, delay });
+    setTimeout(() => setToast(prev => ({ ...prev, show: false })), delay + 200);
+  }
+
+  const handleAddTrackClick = () => {
+    if (!artist) {
+      showRestrictedToast('Complete your artist onboarding first before adding tracks.', 5000, 'warning');
+      return;
+    }
+    if (artistStatus === 'pending') {
+      showRestrictedToast('Your profile is pending verification. You may add tracks after your profile is approved.', 6000, 'warning');
+      return;
+    }
+    if (artistStatus === 'rejected') {
+      showRestrictedToast('Your artist profile was rejected. Contact support for help.', 6000, 'danger');
+      return;
+    }
+    if (artistStatus === 'banned') {
+      showRestrictedToast('Your account has been banned. You cannot add tracks.', 6000, 'danger');
+      return;
+    }
+    if (artistStatus === 'deleted') {
+      showRestrictedToast('Your account has been deleted. You cannot add tracks.', 6000, 'danger');
+      return;
+    }
+    setEditingTrack(null);
+    setShowTrackModal(true);
+  };
+
+  const handleAddEventClick = () => {
+    if (!artist) {
+      showRestrictedToast('Complete your artist onboarding first before creating events.', 5000, 'warning');
+      return;
+    }
+    if (artistStatus === 'pending') {
+      showRestrictedToast('Your profile is pending verification. You may create events after your profile is approved.', 6000, 'warning');
+      return;
+    }
+    if (artistStatus === 'rejected') {
+      showRestrictedToast('Your artist profile was rejected. Contact support for help.', 6000, 'danger');
+      return;
+    }
+    if (artistStatus === 'banned') {
+      showRestrictedToast('Your account has been banned. You cannot create events.', 6000, 'danger');
+      return;
+    }
+    if (artistStatus === 'deleted') {
+      showRestrictedToast('Your account has been deleted. You cannot create events.', 6000, 'danger');
+      return;
+    }
+    setEditingEvent(null);
+    setShowEventModal(true);
+  };
+
+  // CRUD handlers still call API
+  const onTrackSaved = () => {
     loadDashboardData();
     setShowTrackModal(false);
     setEditingTrack(null);
   };
 
-  const onEventSaved = (savedEvent) => {
+  const onEventSaved = () => {
     loadDashboardData();
     setShowEventModal(false);
     setEditingEvent(null);
@@ -97,7 +266,7 @@ export default function ArtistDashboard() {
       await axios.delete(`/tracks/${id}`);
       loadDashboardData();
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      showRestrictedToast(err.response?.data?.error || err.message || 'Failed to delete track', 5000, 'danger');
     }
   };
 
@@ -107,64 +276,59 @@ export default function ArtistDashboard() {
       await axios.delete(`/events/${id}`);
       loadDashboardData();
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      showRestrictedToast(err.response?.data?.error || err.message || 'Failed to delete event', 5000, 'danger');
     }
   };
 
-  if (loading) return <div className="text-center py-5">Loading dashboard...</div>;
-  if (error) return <Alert variant="danger">{error}</Alert>;
-  if (!artist) return <Alert variant="warning">Artist profile not found.</Alert>;
-
-  // resolve backend URL helper (inline - no extra files)
-  const backendBase = (() => {
+  // ----------------------------------------
+  // recordListen: fire-and-forget analytics ping
+  // ----------------------------------------
+  const recordListen = async (track) => {
     try {
-      return (axios && axios.defaults && axios.defaults.baseURL) || process.env.REACT_APP_API_URL || 'http://localhost:3001';
-    } catch {
-      return process.env.REACT_APP_API_URL || 'http://localhost:3001';
+      // fire-and-forget: don't block UI
+      axios.post(`/tracks/${track.id}/listen`).catch(() => {});
+    } catch (e) {
+      // ignore errors from analytics call
+      // eslint-disable-next-line no-console
+      console.debug('recordListen ignored error', e);
     }
-  })().replace(/\/$/, '');
-
-  const resolveToBackend = (raw, artistId) => {
-    if (!raw && !artistId) return '';
-    if (artistId && !raw) {
-      return '';
-    }
-    if (!raw) return '';
-    if (/^https?:\/\//i.test(raw)) return raw;
-    if (raw.startsWith('/')) return `${backendBase}${raw}`;
-    if (raw.startsWith('uploads/')) return `${backendBase}/${raw}`;
-    return `${backendBase}/uploads/${raw}`;
   };
 
-  // put this right after resolveToBackend in ArtistDashboard.jsx
-  const getEventImageRaw = (ev) => {
-    if (!ev) return null;
-    // try common column names — adjust if your events controller returns a different name
-    return ev.image_url || ev.image || ev.cover_url || ev.photo || ev.imagePath || ev.image_path || null;
-  };
-
-  const resolveEventImage = (ev) => {
-    const raw = getEventImageRaw(ev);
-    return raw ? resolveToBackend(raw) : null;
-  };
+  if (loading) return <div className="text-center py-5"><LoadingSpinner size="lg" /></div>;
+  if (error) return <Alert variant="danger">{error}</Alert>;
+  if (!artist) return <Alert variant="warning">Artist profile not found. <Button size="sm" variant="link" onClick={() => navigate('/onboard')}>Complete onboarding</Button></Alert>;
 
   // avatar src: prefer stored photo path if present; fallback to ui-avatars
   const photoRaw = artist.photo_url || artist.photo || null;
   const avatarSrc = photoRaw
-    ? (photoRaw.startsWith('http') ? photoRaw : resolveToBackend(photoRaw, artist.id))
+    ? (photoRaw.startsWith('http') ? photoRaw : resolveToBackend(photoRaw))
     : `https://ui-avatars.com/api/?name=${encodeURIComponent(artist.display_name || artist.username || 'Artist')}&background=0D8ABC&color=fff&size=256`;
 
-  // counts used in tab titles
+  // derived lists
+  const genreNames = (() => {
+    const g = extractGenreNames(artist);
+    return g;
+  })();
+  const moodNames = (() => extractMoodNames(artist))();
+
   const tracksCount = tracks.length;
   const eventsCount = events.length;
   const ratingsCount = ratings.length;
-
-  // Small helper to format upcoming events count
   const upcomingCount = events.filter(e => e.event_date && new Date(e.event_date) > new Date()).length;
 
-  // improved look: cards with subtle shadows, icons
+  const status = computeArtistStatus(artist);
+
   return (
     <div>
+      <ToastMessage
+        show={toast.show}
+        onClose={() => setToast(prev => ({ ...prev, show: false }))}
+        message={toast.message}
+        variant={toast.variant}
+        delay={toast.delay}
+        position="top-end"
+      />
+
       <div className="d-flex justify-content-between align-items-center mb-3">
         <div>
           <h2 className="mb-0">Artist Dashboard</h2>
@@ -174,10 +338,10 @@ export default function ArtistDashboard() {
         <div>
           <Stack direction="horizontal" gap={2}>
             <Button variant="outline-secondary" size="sm" onClick={() => navigate('/')}>Back to Home</Button>
-            <Button variant="success" size="sm" onClick={() => { setEditingTrack(null); setShowTrackModal(true); }}>
+            <Button variant="success" size="sm" onClick={handleAddTrackClick}>
               <FaPlus className="me-1" /> Add Track
             </Button>
-            <Button variant="outline-success" size="sm" onClick={() => { setEditingEvent(null); setShowEventModal(true); }}>
+            <Button variant="outline-success" size="sm" onClick={handleAddEventClick}>
               <FaPlus className="me-1" /> Add Event
             </Button>
           </Stack>
@@ -185,14 +349,7 @@ export default function ArtistDashboard() {
       </div>
 
       <Tabs defaultActiveKey="overview" id="artist-dashboard-tabs" className="mb-3">
-        <Tab
-          eventKey="overview"
-          title={
-            <span>
-              <FaUserCircle className="me-1" /> Overview
-            </span>
-          }
-        >
+        <Tab eventKey="overview" title={<span><FaUserCircle className="me-1" /> Overview</span>}>
           <Row className="mt-3">
             <Col md={4}>
               <Card className="text-center p-3 shadow-sm">
@@ -210,11 +367,15 @@ export default function ArtistDashboard() {
                 </div>
 
                 <Card.Body>
-                  <Card.Title className="mt-2">{artist.display_name}</Card.Title>
+                  <Card.Title className="mt-2 d-flex align-items-center justify-content-center">
+                    <span>{artist.display_name}</span>
+                    <span className="ms-2">{statusBadge(status)}</span>
+                  </Card.Title>
+
                   <Card.Text className="text-muted small">{artist.bio || 'No bio yet — tell fans about your music.'}</Card.Text>
 
                   <div className="d-flex justify-content-center mt-3">
-                    <Button variant="outline-primary" size="sm" onClick={() => navigate('/onboard')}>
+                    <Button variant="outline-primary" size="sm" onClick={() => navigate('/artist/${artist.id}')}>
                       <FaEdit className="me-1" /> Edit Profile
                     </Button>
                   </div>
@@ -235,6 +396,24 @@ export default function ArtistDashboard() {
                       <div className="small text-muted">Reviews</div>
                     </div>
                   </div>
+
+                  <hr />
+
+                  <div className="text-start">
+                    <div className="small text-muted">District</div>
+                    <div className="mb-2">{artist.district || (artist.user && artist.user.district ? artist.user.district.name : (artist.user && artist.user.district_id ? `#${artist.user.district_id}` : 'Unknown'))}</div>
+
+                    <div className="small text-muted">Genres</div>
+                    <div className="mb-2">
+                      {genreNames.length ? genreNames.map(g => <Badge bg="success" className="me-1" key={g}>{g}</Badge>) : <small className="text-muted">No genres</small>}
+                    </div>
+
+                    <div className="small text-muted">Moods</div>
+                    <div>
+                      {moodNames.length ? moodNames.map(m => <Badge bg="info" text="dark" className="me-1" key={m}>{m}</Badge>) : <small className="text-muted">No moods</small>}
+                    </div>
+                  </div>
+
                 </Card.Body>
               </Card>
             </Col>
@@ -246,7 +425,7 @@ export default function ArtistDashboard() {
                   <Row className="mt-3">
                     <Col md={6}>
                       <div className="mb-2"><strong>Average Rating</strong></div>
-                      <div className="display-6 text-success">{artist.avg_rating ? artist.avg_rating.toFixed(1) : 'N/A'}</div>
+                      <div className="display-6 text-success">{artist.avg_rating ? Number(artist.avg_rating).toFixed(1) : 'N/A'}</div>
                     </Col>
                     <Col md={6}>
                       <div className="mb-2"><strong>Upcoming Events</strong></div>
@@ -268,169 +447,36 @@ export default function ArtistDashboard() {
           </Row>
         </Tab>
 
-        <Tab
-          eventKey="tracks"
-          title={
-            <span>
-              <FaMusic className="me-1" /> Tracks <Badge bg="secondary" className="ms-2">{tracksCount}</Badge>
-            </span>
-          }
-        >
-          <div className="mt-3">
-            <div className="d-flex justify-content-between align-items-center mb-2">
-              <div>
-                <Button onClick={() => { setEditingTrack(null); setShowTrackModal(true); }} variant="outline-success" size="sm">
-                  <FaPlus className="me-1" /> New Track
-                </Button>
-              </div>
-              <div className="small text-muted">Manage your audio uploads and metadata</div>
-            </div>
-
-            <Table striped hover responsive className="mb-3">
-              <thead>
-                <tr>
-                  <th style={{ width: 80 }}>Artwork</th>
-                  <th>Title</th>
-                  <th>Duration</th>
-                  <th>Genre</th>
-                  <th style={{ width: 160 }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tracks.map(track => (
-                  <tr key={track.id}>
-                    {/* artwork thumbnail */}
-                    <td className="align-middle">
-                      {track.artwork_url ? (
-                        <Image
-                          src={resolveToBackend(track.artwork_url)}
-                          rounded
-                          style={{ width: 64, height: 64, objectFit: 'cover' }}
-                          onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(track.title || 'Track')}&background=ccc&color=333&size=128`; }}
-                          alt={`${track.title || 'Track'} artwork`}
-                        />
-                      ) : (
-                        <div style={{ width: 64, height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f3f5', color: '#6c757d', borderRadius: 6 }}>
-                          <FaMusic />
-                        </div>
-                      )}
-                    </td>
-
-                    <td className="align-middle">{track.title}</td>
-                    <td className="align-middle">{track.duration ? `${track.duration}s` : '-'}</td>
-                    <td className="align-middle">{track.genre || '-'}</td>
-                    <td className="align-middle">
-                      <div className="d-flex gap-2">
-                        <Button size="sm" variant="outline-primary" onClick={() => { setEditingTrack(track); setShowTrackModal(true); }}>
-                          <FaEdit className="me-1" /> Edit
-                        </Button>
-                        <Button size="sm" variant="outline-danger" onClick={() => deleteTrack(track.id)}>
-                          <FaTrash className="me-1" /> Delete
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {tracks.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="text-center text-muted">No tracks yet — add your first track.</td>
-                  </tr>
-                )}
-              </tbody>
-            </Table>
-
-            {tracks.length > 0 && <AudioPlayer tracks={tracks} />}
-          </div>
+        <Tab eventKey="tracks" title={<span><FaMusic className="me-1" /> Tracks <Badge bg="secondary" className="ms-2">{tracksCount}</Badge></span>}>
+          <TracksPanel
+            tracks={tracks}
+            status={status}
+            onEdit={(t) => { setEditingTrack(t); setShowTrackModal(true); }}
+            onDelete={deleteTrack}
+            resolveToBackend={resolveToBackend}
+            onPlay={recordListen}
+          />
+          {/* If you prefer a single central player UI instead of per-row previews,
+              uncomment and wire AudioPlayer here — but we currently use per-row previews
+              and record listens via recordListen above. */}
+          {/*
+            tracks.length > 0 && (
+              <AudioPlayer tracks={tracks} onPlay={recordListen} />
+            )
+          */}
         </Tab>
 
-        <Tab
-          eventKey="events"
-          title={
-            <span>
-              <FaCalendarAlt className="me-1" /> Events <Badge bg="secondary" className="ms-2">{eventsCount}</Badge>
-            </span>
-          }
-        >
-          <div className="mt-3">
-            <div className="d-flex justify-content-between align-items-center mb-2">
-              <div>
-                <Button onClick={() => { setEditingEvent(null); setShowEventModal(true); }} variant="outline-success" size="sm">
-                  <FaPlus className="me-1" /> New Event
-                </Button>
-              </div>
-              <div className="small text-muted">Create and manage upcoming gigs</div>
-            </div>
-
-            <Table striped hover responsive>
-              <thead>
-                <tr>
-                  <th style={{ width: 80 }}>Image</th>
-                  <th>Title</th>
-                  <th>Date</th>
-                  <th>District</th>
-                  <th>Venue</th>
-                  <th style={{ width: 140 }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {events.map(ev => {
-                  const imgSrc = resolveEventImage(ev);
-                  return (
-                    <tr key={ev.id}>
-                      <td className="align-middle">
-                        {imgSrc ? (
-                          // clickable thumbnail to open full image in new tab
-                          <a href={imgSrc} target="_blank" rel="noreferrer">
-                            <Image
-                              src={imgSrc}
-                              rounded
-                              style={{ width: 64, height: 64, objectFit: 'cover' }}
-                              onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(ev.title || 'Event')}&background=eee&color=777&size=128`; }}
-                              alt={`${ev.title || 'Event'} image`}
-                            />
-                          </a>
-                        ) : (
-                          <div style={{ width: 64, height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f3f5', color: '#6c757d', borderRadius: 6 }}>
-                            <FaCalendarAlt />
-                          </div>
-                        )}
-                      </td>
-
-                      <td className="align-middle">{ev.title}</td>
-                      <td className="align-middle">{ev.event_date ? new Date(ev.event_date).toLocaleDateString() : '-'}</td>
-                      <td className="align-middle">{ev.district_id ? DISTRICTS[ev.district_id - 1] : '-'}</td>
-                      <td className="align-middle">{ev.venue || '-'}</td>
-                      <td className="align-middle">
-                        <div className="d-flex gap-2">
-                          <Button size="sm" variant="outline-primary" onClick={() => { setEditingEvent(ev); setShowEventModal(true); }}>
-                            <FaEdit className="me-1" /> Edit
-                          </Button>
-                          <Button size="sm" variant="outline-danger" onClick={() => deleteEvent(ev.id)}>
-                            <FaTrash className="me-1" /> Delete
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {events.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="text-center text-muted">No events yet — create your first event.</td>
-                  </tr>
-                )}
-              </tbody>
-            </Table>
-          </div>
+        <Tab eventKey="events" title={<span><FaCalendarAlt className="me-1" /> Events <Badge bg="secondary" className="ms-2">{eventsCount}</Badge></span>}>
+          <EventsPanel
+            events={events}
+            onEdit={(e) => { setEditingEvent(e); setShowEventModal(true); }}
+            onDelete={deleteEvent}
+            resolveEventImage={resolveEventImage}
+            districtsMap={(id) => id}
+          />
         </Tab>
 
-        <Tab
-          eventKey="analytics"
-          title={
-            <span>
-              <FaChartLine className="me-1" /> Analytics
-            </span>
-          }
-        >
+        <Tab eventKey="analytics" title={<span><FaChartLine className="me-1" /> Analytics</span>}>
           <div className="mt-3">
             <Card className="shadow-sm">
               <Card.Body>
@@ -442,7 +488,7 @@ export default function ArtistDashboard() {
                   </Col>
                   <Col md={4}>
                     <div className="small text-muted">Average Rating</div>
-                    <div className="h4">{artist.avg_rating ? artist.avg_rating.toFixed(1) : 'N/A'}</div>
+                    <div className="h4">{artist.avg_rating ? Number(artist.avg_rating).toFixed(1) : 'N/A'}</div>
                   </Col>
                   <Col md={4}>
                     <div className="small text-muted">Reviews</div>
@@ -457,13 +503,12 @@ export default function ArtistDashboard() {
         </Tab>
       </Tabs>
 
-      {/* Modals */}
       <AddTrackModal
         show={showTrackModal}
         onHide={() => setShowTrackModal(false)}
         onSaved={onTrackSaved}
         editing={editingTrack}
-        genres={GENRES}
+        genres={metaGenres.map(g => g.name)}
       />
 
       <AddEventModal
@@ -471,7 +516,7 @@ export default function ArtistDashboard() {
         onHide={() => setShowEventModal(false)}
         onSaved={onEventSaved}
         editing={editingEvent}
-        districts={DISTRICTS}
+        districts={[]}
       />
     </div>
   );
