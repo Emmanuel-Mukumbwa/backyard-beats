@@ -16,7 +16,7 @@ import { AuthProvider } from './context/AuthContext';
 import RequireAuth from './components/RequireAuth';
 import RequireRole from './components/RequireRole';
 import EventDetail from './pages/EventDetail';
- 
+  
 export default function App() {
   return (
     <AuthProvider>
