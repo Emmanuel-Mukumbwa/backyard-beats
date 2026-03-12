@@ -1,90 +1,227 @@
-// src/pages/ArtistOnboarding.jsx
+// File: src/pages/ArtistOnboarding.jsx
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Form, Button, Alert, Badge, Image } from 'react-bootstrap';
+import { Card, Form, Button, Badge, Image, Spinner } from 'react-bootstrap';
 import axios from '../api/axiosConfig';
-import DISTRICTS from '../data/districts';
 import { AuthContext } from '../context/AuthContext';
+import ToastMessage from '../components/ToastMessage';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 export default function ArtistOnboarding() {
   const { user, updateUser, fetchArtistProfile } = useContext(AuthContext);
   const navigate = useNavigate();
 
+  // Form state
   const [displayName, setDisplayName] = useState('');
   const [bio, setBio] = useState('');
-  const [district, setDistrict] = useState(''); // could be name or id string
-  const [districtId, setDistrictId] = useState(null); // numeric id if available
-  const [genres, setGenres] = useState([]);
-  const [photoFile, setPhotoFile] = useState(null); // File object
-  const [photoPreview, setPhotoPreview] = useState(null); // object URL or absolute server URL
+  // removed district state per normalized design
+
+  // now store selected genre/mood IDs (numbers)
+  const [genres, setGenres] = useState([]); // array of ids
+  const [moods, setMoods] = useState([]); // array of ids
+
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
+
+  // Lists loaded from server (meta lists)
+  const [metaGenres, setMetaGenres] = useState([]); // [{id, name}, ...]
+  const [metaMoods, setMetaMoods] = useState([]);
+
+  // UI state
   const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [isEditMode, setIsEditMode] = useState(false);
 
-  const GENRES = [
-    "Afropop","Gospel","Hip-hop","R&B","Reggae","Highlife",
-    "Traditional","Dancehall","Jazz","Blues","Electronic"
-  ];
+  // Helpers
+  const UPLOAD_MAX_BYTES = 5 * 1024 * 1024; // 5MB
 
-  // Resolve preview URL (make uploads path absolute if needed)
+  // Resolve preview URL (if server returns relative upload path)
   const resolvePreviewUrl = (raw) => {
     if (!raw) return null;
     if (/^https?:\/\//i.test(raw)) return raw;
-    const base = (axios && axios.defaults && axios.defaults.baseURL) || process.env.REACT_APP_API_URL || 'http://localhost:3001';
+    const base = (axios && axios.defaults && axios.defaults.baseURL) || process.env.REACT_APP_API_URL || 'http://localhost:5000';
     if (raw.startsWith('/')) return `${base}${raw}`;
     if (raw.startsWith('uploads/')) return `${base}/${raw}`;
-    // fallback
     return `${base}/uploads/${raw}`;
   };
 
-  useEffect(() => {
-    // Prefill from AuthContext.user if available, otherwise fall back to localStorage legacy keys
-    try {
-      if (user) {
-        if (user.username) setDisplayName(user.username);
-        if (user.display_name) setDisplayName(user.display_name);
-        if (user.displayName) setDisplayName(user.displayName);
+  // Toggle selection helper for ids
+  const toggleItem = (list, setList, value) => {
+    // ensure value is a number
+    const id = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value;
+    setList(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
 
-        if (user.district) setDistrict(user.district);
-        if (user.district_id) {
-          setDistrictId(Number(user.district_id));
-          setDistrict(String(user.district_id));
-        }
-        if (user.photo_url) {
-          setPhotoPreview(resolvePreviewUrl(user.photo_url));
-        } else if (user.photo) {
-          setPhotoPreview(resolvePreviewUrl(user.photo));
-        }
-      } else {
-        const stored = JSON.parse(localStorage.getItem('bb_user') || 'null');
-        if (stored) {
-          if (stored.username) setDisplayName(stored.username);
-          if (stored.displayName) setDisplayName(stored.displayName);
-          if (stored.display_name) setDisplayName(stored.display_name);
-          if (stored.district) setDistrict(stored.district);
-          if (stored.district_id) {
-            setDistrictId(Number(stored.district_id));
-            setDistrict(String(stored.district_id));
-          }
-          if (stored.photo_url) setPhotoPreview(resolvePreviewUrl(stored.photo_url));
-        }
-      }
+  // File select & validation
+  const handleFileSelect = (file) => {
+    setError(null);
 
-      if (process.env.NODE_ENV === 'development') {
-        // eslint-disable-next-line no-console
-        console.log('ArtistOnboarding prefill — user:', user);
-        // eslint-disable-next-line no-console
-        console.log('Legacy bb_user:', localStorage.getItem('bb_user'));
-        // eslint-disable-next-line no-console
-        console.log('Token present?', !!localStorage.getItem('bb_token'));
-      }
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('Error reading initial user state for onboarding:', e);
+    if (!file) {
+      // clearing
+      if (photoPreview && photoPreview.startsWith('blob:')) URL.revokeObjectURL(photoPreview);
+      setPhotoFile(null);
+      setPhotoPreview(null);
+      return;
     }
-  }, [user]);
 
-  // Cleanup preview URL on unmount / when photoFile changes
+    if (!file.type || !file.type.startsWith('image/')) {
+      setError('Selected file must be an image (jpg/png).');
+      return;
+    }
+
+    if (file.size > UPLOAD_MAX_BYTES) {
+      setError('Image is too large. Max size is 5 MB.');
+      return;
+    }
+
+    // revoke old blob preview if any
+    if (photoPreview && photoPreview.startsWith('blob:')) {
+      URL.revokeObjectURL(photoPreview);
+    }
+    const previewUrl = URL.createObjectURL(file);
+    setPhotoFile(file);
+    setPhotoPreview(previewUrl);
+  };
+
+  const removeSelectedPhoto = () => {
+    if (photoPreview && photoPreview.startsWith('blob:')) URL.revokeObjectURL(photoPreview);
+    setPhotoFile(null);
+    setPhotoPreview(null);
+  };
+
+  // Initial load: meta and existing artist (if any)
+  useEffect(() => {
+    let mounted = true; 
+    async function loadAll() {
+      setFetching(true);
+      setError(null);
+
+      try {
+        // Parallelize meta calls and artist fetch
+        const [gRes, mRes, artistRes] = await Promise.allSettled([
+          axios.get('/meta/genres'),
+          axios.get('/meta/moods'),
+          axios.get('/profile/me').catch(() => null) 
+        ]);
+
+        if (!mounted) return;
+
+        if (gRes.status === 'fulfilled') setMetaGenres(gRes.value.data || []);
+        if (mRes.status === 'fulfilled') setMetaMoods(mRes.value.data || []);
+
+        // display name fallback from user context
+        if (user) {
+          if (!displayName && (user.display_name || user.username)) {
+            setDisplayName(user.display_name || user.username);
+          }
+        }
+
+        // If artist profile exists, prefill for editing
+        if (artistRes && artistRes.status === 'fulfilled' && artistRes.value && artistRes.value.data && artistRes.value.data.artist) {
+          const artist = artistRes.value.data.artist;
+          setIsEditMode(true);
+
+          if (artist.display_name) setDisplayName(artist.display_name);
+          if (artist.bio) setBio(artist.bio);
+
+          // genres may be returned in different shapes:
+          // 1) [{id, name}, ...]
+          // 2) ["Afrobeat","Hip-Hop"] (legacy)
+          // 3) JSON string
+          try {
+            if (artist.genres) {
+              if (Array.isArray(artist.genres)) {
+                if (artist.genres.length > 0 && typeof artist.genres[0] === 'object' && artist.genres[0].id !== undefined) {
+                  // array of objects with id
+                  setGenres(artist.genres.map(g => Number(g.id)));
+                } else {
+                  // array of names - map to ids if meta available
+                  const ids = (gRes.status === 'fulfilled' ? (gRes.value.data || []) : metaGenres)
+                    .filter(mg => artist.genres.includes(mg.name))
+                    .map(mg => mg.id);
+                  setGenres(ids);
+                }
+              } else if (typeof artist.genres === 'string') {
+                try {
+                  const parsed = JSON.parse(artist.genres);
+                  if (Array.isArray(parsed)) {
+                    // handle same as above
+                    if (parsed.length > 0 && typeof parsed[0] === 'object' && parsed[0].id !== undefined) {
+                      setGenres(parsed.map(g => Number(g.id)));
+                    } else {
+                      const ids = (gRes.status === 'fulfilled' ? (gRes.value.data || []) : metaGenres)
+                        .filter(mg => parsed.includes(mg.name))
+                        .map(mg => mg.id);
+                      setGenres(ids);
+                    }
+                  }
+                } catch (e) {
+                  // ignore parse errors
+                }
+              }
+            }
+          } catch (e) {
+            setGenres([]);
+          }
+
+          // moods: same handling
+          try {
+            if (artist.moods) {
+              if (Array.isArray(artist.moods)) {
+                if (artist.moods.length > 0 && typeof artist.moods[0] === 'object' && artist.moods[0].id !== undefined) {
+                  setMoods(artist.moods.map(m => Number(m.id)));
+                } else {
+                  const ids = (mRes.status === 'fulfilled' ? (mRes.value.data || []) : metaMoods)
+                    .filter(mm => artist.moods.includes(mm.name))
+                    .map(mm => mm.id);
+                  setMoods(ids);
+                }
+              } else if (typeof artist.moods === 'string') {
+                try {
+                  const parsed = JSON.parse(artist.moods);
+                  if (Array.isArray(parsed)) {
+                    if (parsed.length > 0 && typeof parsed[0] === 'object' && parsed[0].id !== undefined) {
+                      setMoods(parsed.map(m => Number(m.id)));
+                    } else {
+                      const ids = (mRes.status === 'fulfilled' ? (mRes.value.data || []) : metaMoods)
+                        .filter(mm => parsed.includes(mm.name))
+                        .map(mm => mm.id);
+                      setMoods(ids);
+                    }
+                  }
+                } catch (e) {
+                  // ignore
+                }
+              }
+            }
+          } catch (e) {
+            setMoods([]);
+          }
+
+          if (artist.photo_url) {
+            setPhotoPreview(resolvePreviewUrl(artist.photo_url));
+          } else if (artist.photo) {
+            setPhotoPreview(resolvePreviewUrl(artist.photo));
+          }
+        }
+      } catch (err) {
+        if (mounted) {
+          console.error('Error loading onboarding meta/artist', err);
+          setError('Failed to load onboarding data. Try refreshing the page.');
+        }
+      } finally {
+        if (mounted) setFetching(false);
+      }
+    }
+
+    loadAll();
+    return () => { mounted = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount
+
+  // cleanup blob preview on unmount
   useEffect(() => {
     return () => {
       if (photoPreview && photoPreview.startsWith('blob:')) {
@@ -93,178 +230,112 @@ export default function ArtistOnboarding() {
     };
   }, [photoPreview]);
 
-  const toggleGenre = (g) => {
-    setGenres(gs => gs.includes(g) ? gs.filter(x => x !== g) : [...gs, g]);
-  };
-
-  // File validation: image and max size 5MB
-  const handleFileSelect = (file) => {
-    setError(null);
-
-    if (!file) {
-      setPhotoFile(null);
-      setPhotoPreview(null);
-      return;
-    }
-
-    if (!file.type || !file.type.startsWith('image/')) {
-      setError('Selected file must be an image.');
-      return;
-    }
-
-    const maxBytes = 5 * 1024 * 1024; // 5MB
-    if (file.size > maxBytes) {
-      setError('Image is too large. Max size is 5 MB.');
-      return;
-    }
-
-    // create preview (blob)
-    const previewUrl = URL.createObjectURL(file);
-    // revoke previous blob URL if any
-    if (photoPreview && photoPreview.startsWith('blob:')) {
-      URL.revokeObjectURL(photoPreview);
-    }
-    setPhotoFile(file);
-    setPhotoPreview(previewUrl);
-  };
-
-  const removeSelectedPhoto = () => {
-    if (photoPreview && photoPreview.startsWith('blob:')) {
-      URL.revokeObjectURL(photoPreview);
-    }
-    setPhotoFile(null);
-    setPhotoPreview(null);
-  };
-
+  // Submit handler
   const submit = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setError(null);
     setSuccess(null);
 
+    // Basic validations
     if (!displayName.trim()) {
       setError('Display name is required.');
-      setLoading(false);
       return;
     }
-    if (genres.length === 0) {
+    if (!Array.isArray(genres) || genres.length === 0) {
       setError('Please select at least one genre.');
-      setLoading(false);
       return;
     }
+
+    setLoading(true);
 
     try {
-      // Resolve district_id if DISTRICTS contains objects
-      let resolvedDistrictId = null;
-      if (district) {
-        const firstElem = DISTRICTS && DISTRICTS.length ? DISTRICTS[0] : null;
-        if (firstElem && typeof firstElem === 'object' && ('id' in firstElem || 'name' in firstElem)) {
-          const found = DISTRICTS.find(d => String(d.id) === String(district) || String(d.name) === String(district));
-          if (found) resolvedDistrictId = found.id;
-        }
-      }
-
       const form = new FormData();
       form.append('display_name', displayName.trim());
-      form.append('bio', bio.trim() || '');
+      if (bio && bio.trim()) form.append('bio', bio.trim());
+      // send arrays of ids to backend
       form.append('genres', JSON.stringify(genres));
-      if (resolvedDistrictId) form.append('district_id', String(resolvedDistrictId));
-      else if (district) form.append('district', String(district));
-      // Attach file if present
-      if (photoFile) {
-        form.append('photo', photoFile, photoFile.name);
-      }
+      form.append('moods', JSON.stringify(moods || []));
+      if (photoFile) form.append('photo', photoFile, photoFile.name);
 
-      // Debug log (dev)
-      if (process.env.NODE_ENV === 'development') {
-        // eslint-disable-next-line no-console
-        console.log('Submitting onboarding form:', {
-          display_name: displayName.trim(),
-          bio: bio.trim(),
-          district_id: resolvedDistrictId,
-          district,
-          genres, 
-          photoFileName: photoFile ? photoFile.name : null
-        });
-      }
+      const res = await axios.post('/artistOnboard/onboard', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
 
-      const response = await axios.post('/artistOnboard/onboard', form);
-
-      const msg = response?.data?.message || 'Profile saved successfully!';
+      const msg = res?.data?.message || (isEditMode ? 'Profile updated' : 'Profile created');
       setSuccess(msg);
 
-      // Prefer server-provided user + artist to keep client state authoritative
-      const returnedUser = response?.data?.user || null;
-      const returnedArtist = response?.data?.artist || null;
-      const returnedPhotoUrl = response?.data?.photo_url || returnedArtist?.photo_url || returnedUser?.photo_url || null;
-
-      // Update context user: if server returned user object use it (likely contains has_profile/role)
-      if (returnedUser) {
-        // merge returned user with any existing token in local storage
-        updateUser({ ...returnedUser });
+      // If server returned fresh user, update context user
+      if (res.data && res.data.user) {
+        try { updateUser(res.data.user); } catch (_) {}
       } else {
-        // no user returned — apply minimal flags client-side
-        updateUser({ has_profile: true, role: 'artist', photo_url: returnedPhotoUrl || undefined, display_name: displayName.trim() });
+        // best-effort flag
+        try { updateUser({ has_profile: true, role: 'artist' }); } catch (_) {}
       }
 
-      // Refresh artist profile in context (if server saved one)
+      // Use returned artist data to set preview and local state
+      const returnedArtist = res.data?.artist;
+      const returnedPhoto = res.data?.photo_url || returnedArtist?.photo_url;
+      if (returnedPhoto) {
+        setPhotoPreview(resolvePreviewUrl(returnedPhoto));
+      }
+
+      // optionally re-fetch artist profile in context (if available)
       try {
-        const freshArtist = await fetchArtistProfile();
-        if (freshArtist) {
-          // set photo preview to returned/artist path if available
-          if (freshArtist.photo_url) {
-            setPhotoPreview(resolvePreviewUrl(freshArtist.photo_url));
-          } else if (returnedPhotoUrl) {
-            setPhotoPreview(resolvePreviewUrl(returnedPhotoUrl));
-          }
-        } else if (returnedPhotoUrl) {
-          setPhotoPreview(resolvePreviewUrl(returnedPhotoUrl));
-        }
-      } catch (err) {
-        // ignore fetch errors — we already updated user
-        if (returnedPhotoUrl) setPhotoPreview(resolvePreviewUrl(returnedPhotoUrl));
-      }
+        await fetchArtistProfile?.();
+      } catch (_) {}
 
-      // Navigate after a short moment so user sees success
-      setTimeout(() => {
-        navigate('/artist/dashboard');
-      }, 700);
+      // navigate to dashboard after brief feedback
+      setTimeout(() => navigate('/artist/dashboard'), 700);
     } catch (err) {
-  console.error('Artist onboarding error:', err);
-  // More verbose debug info
-  console.error('Error message:', err.message);
-  if (err.response) {
-    console.error('Response status:', err.response.status);
-    console.error('Response headers:', err.response.headers);
-    console.error('Response body:', err.response.data);
-    setError(err.response.data?.error || err.response.data?.message || String(err.response.data) || err.message);
-  } else if (err.request) {
-    console.error('No response received. Request:', err.request);
-    setError('No response from server. Check your network or server logs.');
-  } else {
-    setError(err.message || 'An error occurred');
-  }
-} finally {
-  setLoading(false);
-}
+      console.error('Artist onboarding submit error:', err);
+      if (err.response) {
+        // backend may return invalid id details in 400
+        const serverErr = err.response.data;
+        if (serverErr && serverErr.invalid_genres) {
+          setError(`Invalid genre IDs: ${serverErr.invalid_genres.join(', ')}`);
+        } else if (serverErr && serverErr.invalid_moods) {
+          setError(`Invalid mood IDs: ${serverErr.invalid_moods.join(', ')}`);
+        } else {
+          setError(err.response.data?.error || err.response.data?.message || 'Failed to save artist profile.');
+        }
+      } else if (err.request) {
+        setError('No response from server. Check your network or server logs.');
+      } else {
+        setError(err.message || 'An error occurred while saving your profile.');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
+
+  if (fetching) {
+    return (
+      <Card className="mx-auto" style={{ maxWidth: 900 }}>
+        <Card.Body className="text-center py-5">
+          <LoadingSpinner size="md" />
+          <div className="mt-3">Loading onboarding data...</div>
+        </Card.Body>
+      </Card>
+    );
+  }
+
+  // helper to get names for selected ids
+  const selectedGenreNames = metaGenres
+    .filter(g => genres.includes(g.id))
+    .map(g => g.name);
+
+  const selectedMoodNames = metaMoods
+    .filter(m => moods.includes(m.id))
+    .map(m => m.name);
 
   return (
     <Card className="mx-auto" style={{ maxWidth: 900 }}>
       <Card.Body>
-        <h3>Artist Onboarding</h3>
+        <h3>{isEditMode ? 'Edit Artist Profile' : 'Artist Onboarding'}</h3>
         <p className="text-muted">Complete your artist profile to start sharing your music.</p>
 
-        {error && (
-          <Alert variant="danger" dismissible onClose={() => setError(null)}>
-            {error}
-          </Alert>
-        )}
-        {success && (
-          <Alert variant="success" dismissible onClose={() => setSuccess(null)}>
-            {success}
-          </Alert>
-        )}
+        <ToastMessage show={!!error} onClose={() => setError(null)} message={error} variant="danger" />
+        <ToastMessage show={!!success} onClose={() => setSuccess(null)} message={success} variant="success" />
 
         <Form onSubmit={submit} encType="multipart/form-data">
           <Form.Group className="mb-3">
@@ -275,7 +346,7 @@ export default function ArtistOnboarding() {
               placeholder="Your artist name"
               required
             />
-            <Form.Text className="text-muted">This is how fans will see you</Form.Text>
+            <Form.Text className="text-muted">This is how fans will see you.</Form.Text>
           </Form.Group>
 
           <Form.Group className="mb-3">
@@ -289,59 +360,58 @@ export default function ArtistOnboarding() {
             />
           </Form.Group>
 
-          <Form.Group className="mb-3">
-            <Form.Label>District</Form.Label>
-            <Form.Select
-              value={district || ''}
-              onChange={e => {
-                const val = e.target.value;
-                setDistrict(val);
-                const first = DISTRICTS && DISTRICTS.length ? DISTRICTS[0] : null;
-                if (first && typeof first === 'object' && ('id' in first || 'name' in first)) {
-                  const found = DISTRICTS.find(d => String(d.id) === String(val) || String(d.name) === String(val));
-                  if (found) {
-                    setDistrictId(found.id);
-                  } else {
-                    setDistrictId(null);
-                  }
-                } else {
-                  setDistrictId(null);
-                }
-              }}
-            >
-              <option value="">Select your district (optional)</option>
-              {DISTRICTS.map((d, idx) => {
-                if (typeof d === 'object') {
-                  return <option key={d.id ?? idx} value={d.id ?? d.name}>{d.name ?? d.id}</option>;
-                }
-                return <option key={d} value={d}>{d}</option>;
-              })}
-            </Form.Select>
-          </Form.Group>
+          {/* District removed from onboarding form — obtained from user's account */}
 
           <Form.Group className="mb-3">
             <Form.Label>Genres <span className="text-danger">*</span></Form.Label>
             <div className="mb-2">
-              {GENRES.map(g => (
-                <button
-                  type="button"
-                  key={g}
-                  className={`btn btn-sm me-2 mb-2 ${genres.includes(g) ? 'btn-success' : 'btn-outline-secondary'}`}
-                  onClick={() => toggleGenre(g)}
-                >
-                  {g}
-                </button>
-              ))}
+              {metaGenres.length === 0 ? (
+                <small className="text-muted">No genres available.</small>
+              ) : metaGenres.map(g => {
+                const id = g.id;
+                const name = g.name ?? String(g);
+                const active = genres.includes(id);
+                return (
+                  <button
+                    type="button"
+                    key={id}
+                    className={`btn btn-sm me-2 mb-2 ${active ? 'btn-success' : 'btn-outline-secondary'}`}
+                    onClick={() => toggleItem(genres, setGenres, id)}
+                  >
+                    {name}
+                  </button>
+                );
+              })}
             </div>
             <Form.Text className="text-muted">
-              Selected: {genres.length > 0 ? genres.join(', ') : 'None'}
+              Selected: {selectedGenreNames.length > 0 ? selectedGenreNames.join(', ') : 'None'}
             </Form.Text>
+            {selectedGenreNames.length > 0 && <div className="mt-2">{selectedGenreNames.map(name => <Badge bg="success" className="me-2" key={name}>{name}</Badge>)}</div>}
+          </Form.Group>
 
-            {genres.length > 0 && (
-              <div className="mt-2">
-                {genres.map(g => <Badge bg="success" className="me-2" key={g}>{g}</Badge>)}
-              </div>
-            )}
+          <Form.Group className="mb-3">
+            <Form.Label>Moods</Form.Label>
+            <div className="mb-2">
+              {metaMoods.length === 0 ? (
+                <small className="text-muted">No moods available.</small>
+              ) : metaMoods.map(m => {
+                const id = m.id;
+                const name = m.name ?? String(m);
+                const active = moods.includes(id);
+                return (
+                  <button
+                    type="button"
+                    key={id}
+                    className={`btn btn-sm me-2 mb-2 ${active ? 'btn-outline-primary' : 'btn-outline-secondary'}`}
+                    onClick={() => toggleItem(moods, setMoods, id)}
+                  >
+                    {name}
+                  </button>
+                );
+              })}
+            </div>
+            <Form.Text className="text-muted">Optional — helps fans find the right vibe.</Form.Text>
+            {selectedMoodNames.length > 0 && <div className="mt-2">{selectedMoodNames.map(name => <Badge bg="info" className="me-2" key={name}>{name}</Badge>)}</div>}
           </Form.Group>
 
           <Form.Group className="mb-3">
@@ -385,7 +455,9 @@ export default function ArtistOnboarding() {
 
           <div className="d-grid mt-4">
             <Button type="submit" variant="success" size="lg" disabled={loading}>
-              {loading ? 'Saving...' : 'Complete Profile'}
+              {loading ? <>
+                <Spinner as="span" animation="border" size="sm" role="status" aria-hidden="true" /> Saving...
+              </> : (isEditMode ? 'Update Profile' : 'Complete Profile')}
             </Button>
           </div>
         </Form>
