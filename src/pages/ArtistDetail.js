@@ -1,79 +1,132 @@
 // src/pages/ArtistDetail.jsx
 import React, { useEffect, useState, useContext } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import axios from '../api/axiosConfig';
-import AudioPlayer from '../components/AudioPlayer';
-import RatingsList from '../components/RatingsList';
-import RatingsForm from '../components/RatingsForm'; 
+import ArtistHeader from '../components/artist/ArtistHeader';
+import TracksPanel from '../components/artist/Tracks';
+import EventsPanel from '../components/artist/Events';
+import RatingsPanel from '../components/artist/RatingsPanel';
+import ArtistSidebar from '../components/artist/ArtistSidebar';
 import { AuthContext } from '../context/AuthContext';
-import { Badge, Row, Col, Card, Button, Spinner } from 'react-bootstrap';
+import { Row, Col, Card, Button, Alert } from 'react-bootstrap';
 
-/**
- * ArtistDetail page with follow/unfollow functionality.
- *
- * Requirements: 
- * - Only logged-in users can follow (redirects to /login when not).
- * - User cannot follow their own artist profile (button disabled).
- * - Optimistic UI updates for immediate feedback; reverts on error.
- * - Assumes favorite endpoints:
- *    GET  /favorites/check/:artistId      -> { following: true|false }
- *    POST /favorites                      -> { message }  body: { artist_id }
- *    DELETE /favorites/:artistId          -> { message }
- */
+import ToastMessage from '../components/ToastMessage';
+import LoadingSpinner from '../components/LoadingSpinner';
+
+/* Helper utilities (kept inside the file for clarity) */
+const normBool = (v) => (v === true || v === 1 || v === '1' || v === 'true') ? true : false;
+const hasValue = (v) => v !== null && typeof v !== 'undefined' && String(v) !== '';
+
+// backend base for resolving relative upload paths
+const getBackendBase = (axiosInstance) => {
+  try { return (axiosInstance && axiosInstance.defaults && axiosInstance.defaults.baseURL) || process.env.REACT_APP_API_URL || 'http://localhost:3001'; }
+  catch { return process.env.REACT_APP_API_URL || 'http://localhost:3001'; }
+};
+const resolveToBackendFactory = (axiosInstance) => {
+  const backendBase = getBackendBase(axiosInstance).replace(/\/$/, '');
+  return (raw) => {
+    if (!raw) return '';
+    if (/^https?:\/\//i.test(raw)) return raw;
+    if (raw.startsWith('/')) return `${backendBase}${raw}`;
+    if (raw.startsWith('uploads/')) return `${backendBase}/${raw}`;
+    return `${backendBase}/uploads/${raw}`;
+  };
+};
 
 export default function ArtistDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { user } = useContext(AuthContext);
+
   const [artist, setArtist] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // follow state & UI helpers
-  const [following, setFollowing] = useState(null); // null = unknown, true/false = known
+  const [following, setFollowing] = useState(null);
   const [processingFollow, setProcessingFollow] = useState(false);
-  const [followMsg, setFollowMsg] = useState(null);
-
-  // bump this to force RatingsList re-fetch after new rating
   const [ratingsKey, setRatingsKey] = useState(0);
+
+  // toast state
+  const [toast, setToast] = useState({
+    show: false,
+    message: '',
+    variant: 'success',
+    title: null,
+    position: 'top-end',
+    delay: 4000
+  });
+  const showToast = ({ message = '', variant = 'success', title = null, position = 'top-end', delay = 4000 }) => {
+    setToast({ show: true, message: String(message), variant, title, position, delay });
+  };
+  const closeToast = () => setToast(prev => ({ ...prev, show: false }));
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
 
-    // Fetch artist
     axios.get(`/artists/${id}`)
       .then(res => {
+        if (cancelled) return;
         const payload = res.data && res.data.artist ? res.data.artist : res.data;
-        if (!cancelled) setArtist(payload || null);
+        if (!payload) { setArtist(null); return; }
+
+        const a = { ...payload };
+
+        // normalize arrays stored as JSON/string
+        if (a.genres && typeof a.genres === 'string') {
+          try { a.genres = JSON.parse(a.genres); } catch { a.genres = a.genres.split(',').map(s => s.trim()); }
+        }
+        if (a.moods && typeof a.moods === 'string') {
+          try { a.moods = JSON.parse(a.moods); } catch { a.moods = a.moods.split(',').map(s => s.trim()); }
+        }
+
+        // normalize booleans
+        a.is_approved = normBool(a.is_approved);
+        a.is_rejected = normBool(a.is_rejected);
+        a.artist_is_approved = normBool(a.artist_is_approved || a.is_approved);
+        a.artist_is_rejected = normBool(a.artist_is_rejected || a.is_rejected);
+
+        // ensure nested user object exists
+        if (!a.user && (a.username || a.user_id || a.user_id === 0)) {
+          a.user = {
+            id: a.user_id || null,
+            username: a.username || null,
+            created_at: a.user_created_at || a.user_created_at || null,
+            banned: normBool(a.user_banned || a.banned),
+            deleted_at: a.user_deleted_at || null,
+            district: a.user_district || a.user_district_name || null
+          };
+        } else {
+          // if we have user_created_at separate, ensure it's accessible
+          if (a.user && !a.user.created_at && a.user_created_at) {
+            a.user.created_at = a.user_created_at;
+          }
+        }
+
+        setArtist(a);
       })
       .catch(err => {
         console.error('Artist load error:', err);
-        if (!cancelled) setError(err.response?.data?.error || err.message || 'Failed to load artist');
+        setError(err.response?.data?.error || err.message || 'Failed to load artist');
       })
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
   }, [id]);
 
-  // after we have artist & user, check follow status
+  // check following status
   useEffect(() => {
     let cancelled = false;
     async function checkFollowing() {
       if (!artist) return;
       try {
-        // If no auth or no user, treat as not following (but still try endpoint - server may require auth)
-        if (!user || !user.id) {
-          setFollowing(false);
-          return;
-        }
+        if (!user || !user.id) { setFollowing(false); return; }
+        // if viewer is artist owner -> not following concept
+        if (artist.user && Number(artist.user.id) === Number(user.id)) { setFollowing(false); return; }
         const res = await axios.get(`/favorites/check/${artist.id}`);
-        if (!cancelled) {
-          // res.data expected { following: true/false }
-          setFollowing(Boolean(res.data && res.data.following));
-        }
+        if (!cancelled) setFollowing(Boolean(res.data && res.data.following));
       } catch (err) {
-        console.warn('Check following failed, defaulting to false', err);
         if (!cancelled) setFollowing(false);
       }
     }
@@ -81,117 +134,184 @@ export default function ArtistDetail() {
     return () => { cancelled = true; };
   }, [artist, user]);
 
-  if (loading) return <div className="text-center py-5">Loading artist...</div>;
-  if (error) return <div className="alert alert-danger">{error}</div>;
-  if (!artist) return <div className="alert alert-warning">Artist not found</div>;
+  const computeArtistStatus = (a) => {
+    if (!a) return 'unknown';
+    if (a.user && (a.user.deleted_at || a.user_deleted_at)) return 'deleted';
+    if (a.user && (a.user.banned || a.user_banned)) return 'banned';
+    if (a.is_rejected || a.artist_is_rejected || a.status === 'rejected') return 'rejected';
+    if (a.is_approved || a.artist_is_approved || a.status === 'approved' || hasValue(a.approved_at)) return 'approved';
+    return 'pending';
+  };
+  const status = computeArtistStatus(artist);
 
-  // helper: format duration
-  const fmtDuration = (sec) => {
+  function fmtDuration(sec) {
     if (!sec && sec !== 0) return '—';
     const s = Number(sec) || 0;
     const mm = Math.floor(s / 60);
     const ss = Math.floor(s % 60);
     return `${mm}:${String(ss).padStart(2, '0')}`;
-  };
+  }
 
-  // helper: get follower count from artist row if present
-  const followerCount = artist.follower_count ?? artist.followers_count ?? null;
+  // token reuse helper
+  function getStoredToken() {
+    const keys = ['token', 'accessToken', 'authToken', 'auth', 'app_token'];
+    for (let k of keys) {
+      const v = localStorage.getItem(k);
+      if (!v) continue;
+      if (v.startsWith('eyJ') || v.split('.').length === 3) return v;
+      if (v.startsWith('Bearer ')) return v.substring(7);
+      try {
+        const parsed = JSON.parse(v);
+        if (parsed) {
+          if (parsed.token) return parsed.token;
+          if (parsed.accessToken) return parsed.accessToken;
+          if (parsed.authToken) return parsed.authToken;
+          const firstStr = Object.values(parsed).find(x => typeof x === 'string' && (x.startsWith('eyJ') || x.split?.('.').length === 3));
+          if (firstStr) return firstStr;
+        }
+      } catch (e) {}
+      return v;
+    }
+    return null;
+  }
 
-  // Click handler: toggles follow/unfollow with optimistic UI
+  async function downloadTrack(trackId) {
+    try {
+      const token = getStoredToken();
+      const headers = {};
+      if (token) headers.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+
+      const res = await axios.get(`/tracks/${trackId}/download`, {
+        responseType: 'blob',
+        headers
+      });
+
+      const disposition = res.headers && (res.headers['content-disposition'] || res.headers['Content-Disposition']);
+      let filename = 'track.mp3';
+      if (disposition) {
+        const m = disposition.match(/filename="(.+)"/);
+        if (m && m[1]) filename = m[1];
+      }
+
+      const blob = res.data;
+      const blobType = blob.type || '';
+      if (blobType.includes('application/json')) {
+        const txt = await blob.text();
+        let parsed;
+        try { parsed = JSON.parse(txt); } catch { parsed = txt; }
+        showToast({ message: `Download failed: ${JSON.stringify(parsed)}`, variant: 'danger', title: 'Download' });
+        return;
+      }
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      showToast({ message: 'Download started', variant: 'success' });
+    } catch (err) {
+      let message = err.message;
+      try {
+        if (err.response && err.response.data) {
+          const data = err.response.data;
+          if (data instanceof Blob) {
+            const txt = await data.text();
+            try {
+              const parsed = JSON.parse(txt);
+              message = parsed.error || JSON.stringify(parsed);
+            } catch (e) { message = txt; }
+          } else if (typeof data === 'object') {
+            message = data.error || JSON.stringify(data);
+          } else {
+            message = String(data);
+          }
+        }
+      } catch (e2) {}
+      showToast({ message: `Download failed: ${message}`, variant: 'danger', title: 'Download' });
+    }
+  }
+
+  const resolveToBackend = resolveToBackendFactory(axios);
+
+  // follow / unfollow with owner guard
   const handleFollowClick = async () => {
-    // require login
-    if (!user || !user.id) {
-      // redirect to login, you can instead open a modal
-      window.location.href = '/login';
+    if (!user || !user.id) { window.location.href = '/login'; return; }
+    // extra guard: if viewer is artist owner, do not allow follow
+    if (artist?.user && Number(artist.user.id) === Number(user.id)) {
+      showToast({ message: "You cannot follow your own artist profile.", variant: 'warning' });
       return;
     }
 
-    // prevent following yourself
-    if (artist.user_id && Number(artist.user_id) === Number(user.id)) {
-      setFollowMsg("You cannot follow your own artist profile.");
-      setTimeout(() => setFollowMsg(null), 3000);
-      return;
-    }
-
-    // If following known true => unfollow; else follow
     const isCurrentlyFollowing = !!following;
-
-    // optimistic update
     setProcessingFollow(true);
     setFollowing(!isCurrentlyFollowing);
-    // optimistically reflect follower_count in artist state if available
-    if (typeof followerCount === 'number') {
-      setArtist(prev => prev ? { ...prev, follower_count: (isCurrentlyFollowing ? Math.max(0, prev.follower_count - 1) : (prev.follower_count || 0) + 1) } : prev);
+
+    if (typeof artist?.follower_count === 'number') {
+      setArtist(prev => prev ? ({ ...prev, follower_count: isCurrentlyFollowing ? Math.max(0, prev.follower_count - 1) : (prev.follower_count || 0) + 1 }) : prev);
     }
 
     try {
       if (isCurrentlyFollowing) {
-        // Unfollow
         await axios.delete(`/favorites/${artist.id}`);
-        setFollowMsg('Unfollowed');
+        showToast({ message: 'Unfollowed', variant: 'warning' });
       } else {
-        // Follow
         await axios.post('/favorites', { artist_id: artist.id });
-        setFollowMsg('Following');
+        showToast({ message: 'Following', variant: 'success' });
       }
-
-      // keep message short and remove after a bit
-      setTimeout(() => setFollowMsg(null), 2500);
     } catch (err) {
-      // revert optimistic update on error
-      console.error('Follow/unfollow failed:', err);
       setFollowing(isCurrentlyFollowing);
-      if (typeof followerCount === 'number') {
-        setArtist(prev => prev ? { ...prev, follower_count: (isCurrentlyFollowing ? (prev.follower_count || 0) + 1 : Math.max(0, (prev.follower_count || 1) - 1)) } : prev);
+      if (typeof artist?.follower_count === 'number') {
+        setArtist(prev => prev ? ({ ...prev, follower_count: isCurrentlyFollowing ? (prev.follower_count || 0) + 1 : Math.max(0, (prev.follower_count || 1) - 1) }) : prev);
       }
       const msg = err.response?.data?.error || err.message || 'Action failed';
-      setFollowMsg(msg);
-      setTimeout(() => setFollowMsg(null), 4000);
+      showToast({ message: msg, variant: 'danger', title: 'Error' });
     } finally {
       setProcessingFollow(false);
     }
   };
 
-  // A small helper to render the follow button area
-  const renderFollowArea = () => {
-    // If this is the same user who owns the artist profile -> disable
-    const isOwner = artist.user_id && user && (Number(artist.user_id) === Number(user.id));
-    // If following state unknown, show a small placeholder
-    if (following === null) {
-      return <Button variant="outline-secondary" size="sm" disabled><Spinner animation="border" size="sm" /></Button>;
-    }
+  if (loading) return <div className="text-center py-5"><LoadingSpinner size="lg" /></div>;
+  if (error) return <div className="alert alert-danger">{error}</div>;
+  if (!artist) return <div className="alert alert-warning">Artist not found</div>;
 
-    // Button text and variant
-    const btnVariant = following ? 'outline-success' : 'primary';
-    const btnText = following ? 'Following ✓' : 'Follow';
-
-    return (
-      <>
-        <Button
-          variant={btnVariant}
-          size="sm"
-          className="me-2"
-          onClick={handleFollowClick}
-          disabled={processingFollow || isOwner}
-          aria-pressed={following}
-        >
-          {processingFollow ? <Spinner animation="border" size="sm" /> : btnText}
-        </Button>
-        <Button as={Link} to={`/message/artist/${artist.id}`} variant="light" size="sm">Message</Button>
-        <div className="small text-muted mt-1">
-          {isOwner ? <em>This is your profile</em> : (typeof followerCount === 'number' ? `${followerCount} follower${followerCount !== 1 ? 's' : ''}` : '')}
-        </div>
-      </>
-    );
-  };
-
-  // tracks array expected as artist.tracks (normalize if needed)
+  const genres = Array.isArray(artist.genres) ? artist.genres.map(g => typeof g === 'object' ? g.name || String(g.id) : String(g)) : (artist.genres ? (typeof artist.genres === 'string' ? [artist.genres] : [String(artist.genres)]) : []);
+  const moods = Array.isArray(artist.moods) ? artist.moods.map(m => typeof m === 'object' ? m.name || String(m.id) : String(m)) : (artist.moods ? (typeof artist.moods === 'string' ? [artist.moods] : [String(artist.moods)]) : []);
   const tracks = Array.isArray(artist.tracks) ? artist.tracks : (artist.tracks_list || artist.tracks || []);
+  const events = Array.isArray(artist.events) ? artist.events : (artist.artist_events || artist.events_list || []);
+  const followerCount = (typeof artist.follower_count === 'number') ? artist.follower_count : (typeof artist.followers_count === 'number' ? artist.followers_count : (typeof artist.followers === 'number' ? artist.followers : null));
+  const events_count = typeof artist.events_count === 'number' ? artist.events_count : (events ? events.length : 0);
+  const tracks_count = typeof artist.tracks_count === 'number' ? artist.tracks_count : (tracks ? tracks.length : 0);
+
+  const isOwner = artist?.user && user && Number(artist.user.id) === Number(user.id);
+
+  // COVER and avatar resolution (same as before; fallback to ui-avatars)
+  const coverRaw = artist.cover_url || artist.cover || null;
+  const coverSrc = coverRaw ? resolveToBackend(coverRaw) : `https://ui-avatars.com/api/?name=${encodeURIComponent(artist.displayName || artist.display_name || artist.username || 'Artist')}&background=eeeeee&color=333&size=1200`;
+  const avatarRaw = artist.photo_url || artist.photo || null;
+  const avatarSrc = avatarRaw ? resolveToBackend(avatarRaw) : `https://ui-avatars.com/api/?name=${encodeURIComponent(artist.displayName || artist.display_name || artist.username || 'Artist')}&background=0D8ABC&color=fff&size=512`;
 
   return (
     <div className="artist-detail-page">
-      {/* Cover area */}
-      <div style={{ position: 'relative', marginBottom: 24 }}>
+      <div style={{ marginBottom: 12 }}>
+        {status === 'pending' && <Alert variant="warning">This profile is pending verification — content may be private until approval.</Alert>}
+        {status === 'rejected' && (
+          <Alert variant="danger">
+            This profile was rejected.
+            {artist.rejection_reason ? <> Reason: <em>{artist.rejection_reason}</em>.</> : null}
+            <div className="mt-2">
+              <a href="/support" target="_blank" rel="noreferrer">Appeal / Contact support</a>
+            </div>
+          </Alert>
+        )}
+        {status === 'banned' && <Alert variant="danger">This account has been banned. Contact support if you believe this is an error.</Alert>}
+        {status === 'deleted' && <Alert variant="secondary">This account has been deleted.</Alert>}
+      </div>
+
+      <div style={{ marginBottom: 24, position: 'relative' }}>
         <div style={{
           height: 220,
           width: '100%',
@@ -199,83 +319,34 @@ export default function ArtistDetail() {
           background: '#f4f4f4',
           borderRadius: 6,
         }}>
-          <img
-            src={artist.cover_url || artist.cover || artist.photo_url || `/assets/placeholder-cover.jpg`}
-            alt={`${artist.displayName || artist.username} cover`}
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-            onError={(e) => {
-              e.currentTarget.onerror = null;
-              const name = encodeURIComponent(artist.displayName || artist.display_name || artist.username || 'Artist');
-              e.currentTarget.src = `https://ui-avatars.com/api/?name=${name}&background=eeeeee&color=333&size=1200`;
-            }}
-            loading="lazy"
-          />
+          <img src={coverSrc} alt="cover" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+               onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = coverSrc; }} loading="lazy" />
         </div>
 
-        {/* Avatar overlaps cover */}
-        <div style={{
-          position: 'absolute',
-          left: 20,
-          bottom: -48,
-          display: 'flex',
-          alignItems: 'center',
-        }}>
-          <img
-            src={artist.photo_url || artist.photo || `/assets/placeholder-avatar.png`}
-            alt={`${artist.displayName || artist.username} avatar`}
-            style={{
-              width: 96,
-              height: 96,
-              objectFit: 'cover',
-              borderRadius: '50%',
-              border: '4px solid white',
-              boxShadow: '0 6px 18px rgba(0,0,0,0.12)'
-            }}
-            onError={(e) => {
-              e.currentTarget.onerror = null;
-              const name = encodeURIComponent(artist.displayName || artist.display_name || artist.username || 'Artist');
-              e.currentTarget.src = `https://ui-avatars.com/api/?name=${name}&background=0D8ABC&color=fff&size=512`;
-            }}
-            loading="lazy"
-          />
+        <div style={{ position: 'absolute', left: 20, bottom: -48, display: 'flex', alignItems: 'center' }}>
+          <img src={avatarSrc} alt="avatar" style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: '50%', border: '4px solid white', boxShadow: '0 6px 18px rgba(0,0,0,0.12)' }} loading="lazy" />
         </div>
       </div>
 
-      {/* Main content area */}
       <div style={{ paddingTop: 56 }}>
         <Row>
           <Col md={8}>
             <Card className="mb-3">
               <Card.Body>
-                <div className="d-flex align-items-start justify-content-between">
-                  <div>
-                    <h2 style={{ marginBottom: 6 }}>{artist.displayName || artist.display_name || artist.username}</h2>
-                    <div className="text-muted small mb-2">
-                      {artist.district || artist.district_name || ''} {artist.district ? '•' : ''} {Array.isArray(artist.genres) ? artist.genres.join(', ') : (artist.genres || '')}
-                    </div>
-                    <p style={{ whiteSpace: 'pre-wrap' }}>{artist.bio}</p>
-                    <div className="d-flex align-items-center" style={{ gap: 12 }}>
-                      <div>
-                        <Badge bg="success" pill style={{ fontSize: 14 }}>
-                          {artist.avg_rating ? `${artist.avg_rating} ★` : 'No ratings'}
-                        </Badge>
-                      </div>
-                      <div className="text-muted small">{artist.total_reviews ? `${artist.total_reviews} review${artist.total_reviews > 1 ? 's' : ''}` : 'Be the first to review'}</div>
-                    </div>
-                  </div>
-
-                  <div className="text-end">
-                    <div style={{ marginBottom: 8 }}>
-                      {renderFollowArea()}
-                    </div>
-                    <div className="small text-muted">Joined: {artist.created_at ? new Date(artist.created_at).toLocaleDateString() : '—'}</div>
-                    {followMsg && <div className="small text-success mt-2">{followMsg}</div>}
-                  </div>
-                </div>
+                <ArtistHeader
+                  artist={artist}
+                  genres={genres}
+                  moods={moods}
+                  isOwner={isOwner}
+                  following={following}
+                  processingFollow={processingFollow}
+                  onFollowClick={handleFollowClick}
+                  followerCount={followerCount}
+                />
+                {/* follow messages moved to toasts */}
               </Card.Body>
             </Card>
 
-            {/* Tracks */}
             <Card className="mb-3">
               <Card.Body>
                 <div className="d-flex justify-content-between align-items-center mb-2">
@@ -283,24 +354,20 @@ export default function ArtistDetail() {
                   <div className="small text-muted">{tracks.length} track{tracks.length !== 1 ? 's' : ''}</div>
                 </div>
 
-                {tracks && tracks.length > 0 ? (
-                  <>
-                    <AudioPlayer tracks={tracks} />
-                    <div className="list-group mt-3">
-                      {tracks.map(t => (
-                        <div key={t.id} className="list-group-item d-flex justify-content-between align-items-center">
-                          <div>
-                            <div className="fw-bold">{t.title}</div>
-                            <div className="small text-muted">{t.genre || ''} · {fmtDuration(t.duration)}</div>
-                          </div>
-                          <div className="text-muted small">Preview</div>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-muted">No tracks uploaded yet.</div>
+                {status !== 'approved' && (
+                  <div className="alert alert-warning">
+                    Tracks are private until the artist profile is approved. They are visible only to you.
+                    {status === 'rejected' && <div className="mt-2"><a href="/support">Appeal / Contact support</a></div>}
+                  </div>
                 )}
+
+                <TracksPanel tracks={tracks} resolveToBackend={resolveToBackend} fmtDuration={fmtDuration} onDownload={downloadTrack} />
+              </Card.Body>
+            </Card>
+
+            <Card className="mb-3">
+              <Card.Body>
+                <EventsPanel events={events} />
               </Card.Body>
             </Card>
           </Col>
@@ -308,37 +375,42 @@ export default function ArtistDetail() {
           <Col md={4}>
             <Card className="mb-3">
               <Card.Body>
-                <h6>Ratings & Reviews</h6>
-                <RatingsList artistId={artist.id} refreshKey={ratingsKey} />
+                <RatingsPanel
+                  artistId={artist.id}
+                  onRatingSubmitted={(resp) => {
+                    setRatingsKey(k => k + 1);
+                    if (resp?.avg_rating !== undefined) {
+                      setArtist(prev => prev ? ({ ...prev, avg_rating: resp.avg_rating, total_reviews: resp.total_reviews }) : prev);
+                    }
+                  }}
+                />
               </Card.Body>
             </Card>
 
-            <Card className="mb-3">
-              <Card.Body>
-                <h6 className="mb-2">Leave a rating</h6>
-                <RatingsForm artistId={artist.id} onSubmitted={(resp) => {
-                  // optimistic: bump ratings list and update artist avg if provided
-                  setRatingsKey(k => k + 1);
-                  if (resp?.avg_rating !== undefined) {
-                    setArtist(prev => prev ? ({ ...prev, avg_rating: resp.avg_rating, total_reviews: resp.total_reviews }) : prev);
-                  }
-                }} />
-              </Card.Body>
-            </Card>
-
-            {/* Small artist meta card */}
-            <Card>
-              <Card.Body>
-                <div className="small text-muted mb-2">Artist details</div>
-                <div><strong>Location:</strong> {artist.district || 'Unspecified'}</div>
-                <div><strong>Genres:</strong> {Array.isArray(artist.genres) ? artist.genres.join(', ') : (artist.genres || '—')}</div>
-                <div><strong>Tracks:</strong> {tracks.length}</div>
-                <div><strong>Followers:</strong> {artist.follower_count ?? '—'}</div>
-              </Card.Body>
-            </Card>
+            <div className="mb-3">
+              <ArtistSidebar
+                artist={artist}
+                events_count={events_count}
+                tracks_count={tracks_count}
+                followerCount={followerCount}
+                isOwner={isOwner}
+                onEdit={() => navigate('/onboard')}
+              />
+            </div>
           </Col>
         </Row>
       </div>
+
+      {/* page-level toast */}
+      <ToastMessage
+        show={toast.show}
+        onClose={closeToast}
+        message={toast.message}
+        variant={toast.variant}
+        title={toast.title}
+        position={toast.position}
+        delay={toast.delay}
+      />
     </div>
   );
 }
