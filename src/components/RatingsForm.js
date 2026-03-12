@@ -171,3 +171,4 @@ export default function RatingsForm({ artistId, onSubmitted }) {
     </form>
   );
 }
+ 
