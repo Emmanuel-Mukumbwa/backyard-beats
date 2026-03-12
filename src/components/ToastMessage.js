@@ -1,4 +1,5 @@
 // File: src/components/ToastMessage.js
+///used globaly throughout the app, so we can easily change the look and feel of all toasts by changing this one component
 import React from 'react';
 import { Toast, ToastContainer } from 'react-bootstrap';
 import PropTypes from 'prop-types';
@@ -13,7 +14,7 @@ export default function ToastMessage({
   message,
   variant = 'success',
   delay = 4000,
-  position = 'top-end',
+  position = 'top-end', 
   title,
 }) {
   const bg = variant === 'danger' ? 'danger' : (variant === 'warning' ? 'warning' : 'success');
