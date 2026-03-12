@@ -1,3 +1,4 @@
+// src/server/controllers/districtsController.controller.js
 const District = require('../models/District');
 
 exports.list = async (req, res, next) => {
