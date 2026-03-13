@@ -211,3 +211,52 @@ CREATE TABLE `favorites` (
   CONSTRAINT `fk_favorites_artist` FOREIGN KEY (`artist_id`) REFERENCES `artists` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_favorites_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+
+-- 1. support_tickets
+CREATE TABLE support_tickets (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,             -- creator
+  subject VARCHAR(255) NOT NULL,
+  body TEXT NOT NULL,                           -- initial message
+  type ENUM('appeal','bug','question','other') DEFAULT 'other',
+  target_type ENUM('track','event','artist','none') DEFAULT 'none',
+  target_id BIGINT UNSIGNED DEFAULT NULL,       -- id of track/event/etc
+  status ENUM('open','pending','resolved','closed','spam') DEFAULT 'open',
+  priority ENUM('low','normal','high') DEFAULT 'normal',
+  assignee_id BIGINT UNSIGNED DEFAULT NULL,     -- admin assigned
+  is_read TINYINT(1) DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX (user_id),
+  INDEX (status),
+  INDEX (target_type, target_id)
+);
+
+-- 2. support_messages (thread)
+CREATE TABLE support_messages (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  ticket_id BIGINT UNSIGNED NOT NULL,
+  sender_user_id BIGINT UNSIGNED DEFAULT NULL,  -- null if system
+  sender_role ENUM('user','admin','system') DEFAULT 'user',
+  body TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (ticket_id) REFERENCES support_tickets(id) ON DELETE CASCADE,
+  INDEX (ticket_id),
+  INDEX (sender_user_id)
+);
+
+-- 3. support_attachments
+CREATE TABLE support_attachments (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  message_id BIGINT UNSIGNED DEFAULT NULL,   -- attachment belongs to a message (preferred)
+  ticket_id BIGINT UNSIGNED DEFAULT NULL,    -- or belong directly to ticket
+  filename VARCHAR(255) NOT NULL,
+  path VARCHAR(1024) NOT NULL,
+  mime VARCHAR(100),
+  size INT UNSIGNED,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (message_id) REFERENCES support_messages(id) ON DELETE CASCADE,
+  FOREIGN KEY (ticket_id) REFERENCES support_tickets(id) ON DELETE CASCADE,
+  INDEX (ticket_id),
+  INDEX (message_id)
+);
