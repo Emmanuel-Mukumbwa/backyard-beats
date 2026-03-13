@@ -16,7 +16,7 @@ const OTHERS_DIR = path.join(UPLOAD_BASE, 'others');
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-});
+}); 
  
 // Utility: sanitize filename base
 function sanitizeBase(name = 'file') {
