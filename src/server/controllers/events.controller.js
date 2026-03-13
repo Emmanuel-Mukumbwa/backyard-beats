@@ -398,6 +398,6 @@ exports.deleteEvent = async (req, res, next) => {
     await pool.query('DELETE FROM events WHERE id = ? AND artist_id = ?', [id, artist.id]);
     return res.json({ message: 'Event deleted' });
   } catch (err) {
-    next(err);
+    next(err); 
   }
 };
