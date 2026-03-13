@@ -1,7 +1,8 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Table, Button, Image, Badge } from 'react-bootstrap';
 import { FaMusic, FaEdit, FaTrash, FaDownload } from 'react-icons/fa';
 import PropTypes from 'prop-types';
+import { useNavigate } from 'react-router-dom';
 import axios from '../../api/axiosConfig';
 import ConfirmModal from '../ConfirmModal';
 
@@ -18,9 +19,9 @@ export default function TracksPanel({
   onDelete,
   resolveToBackend,
   onPlay = null,
-  supportUrl = '/support',
-  supportEmail = 'support@backyardbeats.local'
+  supportUrl = '/support'
 }) {
+  const navigate = useNavigate();
   const playingRef = useRef(null);
 
   // Confirm modal state for deletes
@@ -32,6 +33,44 @@ export default function TracksPanel({
     variant: 'danger',
     confirmText: 'Delete'
   });
+
+  // tickets map: { 'track:123': ticket }
+  const [ticketsMap, setTicketsMap] = useState({});
+  const [loadingTicketsMap, setLoadingTicketsMap] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadUserTickets() {
+      setLoadingTicketsMap(true);
+      try {
+        // fetch user's tickets and create a map keyed by target_type:target_id
+        const res = await axios.get('/support', { params: { limit: 200 } });
+        if (!mounted) return;
+        const t = res.data.tickets || [];
+        const map = {};
+        for (const ticket of t) {
+          if (ticket.target_type && ticket.target_type !== 'none' && ticket.target_id) {
+            const key = `${ticket.target_type}:${String(ticket.target_id)}`;
+            // keep the latest updated ticket if multiple exist (compare updated_at)
+            if (!map[key]) map[key] = ticket;
+            else {
+              const prev = new Date(map[key].updated_at).getTime();
+              const cur = new Date(ticket.updated_at).getTime();
+              if (cur >= prev) map[key] = ticket;
+            }
+          }
+        }
+        setTicketsMap(map);
+      } catch (e) {
+        // fail silently - ticketsMap can remain empty
+        // console.warn('Failed load tickets for TracksPanel', e);
+      } finally {
+        if (mounted) setLoadingTicketsMap(false);
+      }
+    }
+    loadUserTickets();
+    return () => { mounted = false; };
+  }, []);
 
   function openDeleteConfirm(id) {
     setConfirm(prev => ({ ...prev, show: true, id }));
@@ -48,7 +87,6 @@ export default function TracksPanel({
       await onDelete(id);
     } catch (e) {
       // onDelete is expected to show errors; nothing else here
-      // fallback: console error
       // eslint-disable-next-line no-console
       console.error('Delete failed', e);
     } finally {
@@ -85,25 +123,20 @@ export default function TracksPanel({
     for (let k of keys) {
       const v = localStorage.getItem(k);
       if (!v) continue;
-      // raw token string
       if (v.startsWith('eyJ') || v.split('.').length === 3) return v;
-      // maybe stored as "Bearer <token>"
       if (v.startsWith('Bearer ')) return v.substring(7);
-      // maybe JSON string: {"token":"..."} or {"accessToken":"..."}
       try {
         const parsed = JSON.parse(v);
         if (parsed) {
           if (parsed.token) return parsed.token;
           if (parsed.accessToken) return parsed.accessToken;
           if (parsed.authToken) return parsed.authToken;
-          // fallback: first string value
           const firstStr = Object.values(parsed).find(x => typeof x === 'string' && (x.startsWith('eyJ') || x.split?.('.').length === 3));
           if (firstStr) return firstStr;
         }
       } catch (e) {
         // not JSON, continue
       }
-      // fallback: return raw anyway
       return v;
     }
     return null;
@@ -111,7 +144,6 @@ export default function TracksPanel({
 
   /**
    * Download via axios so we reuse baseURL and interceptors (and send cookies if configured).
-   * We still attach Authorization header if we can find a token in localStorage.
    */
   async function downloadTrack(trackId) {
     try {
@@ -124,7 +156,6 @@ export default function TracksPanel({
         headers
       });
 
-      // axios returns headers in lower-case keys
       const disposition = res.headers && (res.headers['content-disposition'] || res.headers['Content-Disposition']);
       let filename = 'track.mp3';
       if (disposition) {
@@ -132,12 +163,9 @@ export default function TracksPanel({
         if (m && m[1]) filename = m[1];
       }
 
-      // If content is JSON (error), attempt to parse and show message
-      // But since we used responseType: 'blob', res.data is a Blob.
       const blob = res.data;
       const blobType = blob.type || '';
       if (blobType.includes('application/json')) {
-        // parse JSON text to show error
         const text = await blob.text();
         let parsed;
         try { parsed = JSON.parse(text); } catch (e) { parsed = text; }
@@ -154,11 +182,9 @@ export default function TracksPanel({
       a.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      // If axios receives a non-2xx, err.response may contain a blob or json/text
       let message = err.message;
       try {
         if (err.response && err.response.data) {
-          // responseType was 'blob' — attempt to read text
           const data = err.response.data;
           if (data instanceof Blob) {
             const txt = await data.text();
@@ -174,11 +200,44 @@ export default function TracksPanel({
             message = String(data);
           }
         }
-      } catch (e2) {
-        // ignore parsing errors
-      }
+      } catch (e2) { /* ignore */ }
       alert(`Download failed: ${message}`);
     }
+  }
+
+  /**
+   * Open support page with prefilled appeal data for a track.
+   */
+  function openAppealForTrack(track) {
+    const previewRaw = getPreviewRaw(track);
+    const existingFiles = [];
+    if (previewRaw && typeof resolveToBackend === 'function') {
+      try {
+        const url = resolveToBackend(previewRaw);
+        if (url) existingFiles.push({ url, filename: `${(track.title || 'track').replace(/\s+/g, '_')}.mp3` });
+      } catch (e) { /* ignore */ }
+    }
+
+    const subject = `Appeal: ${track.title || 'untitled track'}`;
+    const body = `Hi support,\n\nMy track "${track.title || 'untitled'}" was rejected.${track.rejection_reason ? `\n\nRejection reason: ${track.rejection_reason}` : ''}\n\nPlease review the decision and attached file.\n\nThanks.`;
+
+    const prefill = {
+      subject,
+      body,
+      type: 'appeal',
+      targetType: 'track',
+      targetId: String(track.id),
+      includeTargetFile: true,
+      existingFiles
+    };
+
+    navigate('/support', { state: { prefill } });
+  }
+
+  function handleViewTicket(ticket) {
+    if (!ticket) return;
+    // navigate using query param so SupportPage opens My Tickets tab and preserves on reload
+    navigate(`/support?openTicket=${ticket.id}`);
   }
 
   return (
@@ -190,7 +249,7 @@ export default function TracksPanel({
             <th>Title & status</th>
             <th style={{ width: 380 }}>Preview</th>
             <th style={{ width: 100 }}>Duration</th>
-            <th style={{ width: 160 }}>Actions</th>
+            <th style={{ width: 200 }}>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -200,6 +259,10 @@ export default function TracksPanel({
             const previewUrl = previewRaw ? resolveToBackend(previewRaw) : null;
             const artworkRaw = getArtworkRaw(track);
             const artworkUrl = artworkRaw ? resolveToBackend(artworkRaw) : null;
+
+            // find ticket in map
+            const ticketKey = `track:${String(track.id)}`;
+            const ticket = ticketsMap[ticketKey];
 
             return (
               <tr key={track.id}>
@@ -230,6 +293,16 @@ export default function TracksPanel({
                   {track.is_rejected && track.rejection_reason && (
                     <div className="mt-1"><small className="text-danger">Reason: {track.rejection_reason}</small></div>
                   )}
+
+                  <div className="mt-1">
+                    {track.is_rejected && ticket && (
+                      <Button size="sm" variant="outline-primary" onClick={() => handleViewTicket(ticket)}>View ticket</Button>
+                    )}
+                    {track.is_rejected && !ticket && (
+                      // Contact support behaves like Appeal: open prefilled support form
+                      <Button size="sm" variant="link" onClick={() => openAppealForTrack(track)}>Contact support</Button>
+                    )}
+                  </div>
                 </td>
 
                 <td className="align-middle">
@@ -267,6 +340,13 @@ export default function TracksPanel({
                     <Button size="sm" variant="outline-primary" onClick={() => onEdit(track)}>
                       <FaEdit className="me-1" /> Edit
                     </Button>
+
+                    {track.is_rejected && (
+                      <Button size="sm" variant="outline-warning" onClick={() => openAppealForTrack(track)}>
+                        Appeal
+                      </Button>
+                    )}
+
                     <Button size="sm" variant="outline-danger" onClick={() => openDeleteConfirm(track.id)}>
                       <FaTrash className="me-1" /> Delete
                     </Button>
@@ -304,6 +384,5 @@ TracksPanel.propTypes = {
   onDelete: PropTypes.func.isRequired,
   resolveToBackend: PropTypes.func.isRequired,
   onPlay: PropTypes.func,
-  supportUrl: PropTypes.string,
-  supportEmail: PropTypes.string
+  supportUrl: PropTypes.string
 };
