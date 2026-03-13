@@ -1,3 +1,4 @@
+// src/pages/ArtistDashboard.js
 import React, { useState, useEffect, useContext } from 'react';
 import {
   Tabs,
@@ -37,6 +38,10 @@ export default function ArtistDashboard() {
   const [ratings, setRatings] = useState([]);
   const [metaGenres, setMetaGenres] = useState([]);
   const [metaMoods, setMetaMoods] = useState([]);
+
+  // districts state: list + lookup map
+  const [districtsList, setDistrictsList] = useState([]);
+  const [districtsMapObj, setDistrictsMapObj] = useState({});
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -141,19 +146,39 @@ export default function ArtistDashboard() {
     return [];
   }
 
-  // load meta, profile, tracks, events, ratings
+  // load meta, profile, tracks, events, ratings, districts
   async function loadDashboardData() {
     setLoading(true);
     setError(null);
     try {
-      const [gRes, mRes, profileRes] = await Promise.allSettled([
+      // fetch meta, profile, districts in parallel
+      const [gRes, mRes, profileRes, districtsRes] = await Promise.allSettled([
         axios.get('/meta/genres'),
         axios.get('/meta/moods'),
-        axios.get('/profile/me')
+        axios.get('/profile/me'),
+        axios.get('/districts')
       ]);
 
       if (gRes.status === 'fulfilled') setMetaGenres(Array.isArray(gRes.value.data) ? gRes.value.data : []);
       if (mRes.status === 'fulfilled') setMetaMoods(Array.isArray(mRes.value.data) ? mRes.value.data : []);
+
+      // normalize districts
+      const dList = (districtsRes.status === 'fulfilled' && Array.isArray(districtsRes.value.data))
+        ? districtsRes.value.data.map(d => {
+            const id = d.id !== undefined ? String(d.id) : (d.ID !== undefined ? String(d.ID) : '');
+            const name = d.name || d.title || d.label || d.district_name || '';
+            return { id, name };
+          }).filter(x => x.name)
+        : [];
+      setDistrictsList(dList);
+      const dmap = {};
+      dList.forEach(d => {
+        if (d && d.id) {
+          dmap[d.id] = d.name;
+          dmap[String(d.id)] = d.name;
+        }
+      });
+      setDistrictsMapObj(dmap);
 
       let artistData = null;
       if (profileRes.status === 'fulfilled' && profileRes.value.data && profileRes.value.data.artist) {
@@ -164,7 +189,11 @@ export default function ArtistDashboard() {
       setArtist(artistData);
 
       if (artistData && artistData.id) {
-        const [tracksRes, eventsRes] = await Promise.allSettled([axios.get('/tracks'), axios.get('/events')]);
+        // fetch tracks + artist-owned events (includes pending/rejected)
+        const [tracksRes, eventsRes] = await Promise.allSettled([
+          axios.get('/tracks'),
+          axios.get('/events/my')   // important: use authenticated artist endpoint
+        ]);
 
         setTracks(tracksRes.status === 'fulfilled' && Array.isArray(tracksRes.value.data) ? tracksRes.value.data : []);
         setEvents(eventsRes.status === 'fulfilled' && Array.isArray(eventsRes.value.data) ? eventsRes.value.data : []);
@@ -456,14 +485,6 @@ export default function ArtistDashboard() {
             resolveToBackend={resolveToBackend}
             onPlay={recordListen}
           />
-          {/* If you prefer a single central player UI instead of per-row previews,
-              uncomment and wire AudioPlayer here — but we currently use per-row previews
-              and record listens via recordListen above. */}
-          {/*
-            tracks.length > 0 && (
-              <AudioPlayer tracks={tracks} onPlay={recordListen} />
-            )
-          */}
         </Tab>
 
         <Tab eventKey="events" title={<span><FaCalendarAlt className="me-1" /> Events <Badge bg="secondary" className="ms-2">{eventsCount}</Badge></span>}>
@@ -472,7 +493,7 @@ export default function ArtistDashboard() {
             onEdit={(e) => { setEditingEvent(e); setShowEventModal(true); }}
             onDelete={deleteEvent}
             resolveEventImage={resolveEventImage}
-            districtsMap={(id) => id}
+            districtsMap={(id) => (districtsMapObj && (districtsMapObj[String(id)] || districtsMapObj[id])) || null}
           />
         </Tab>
 
@@ -516,7 +537,7 @@ export default function ArtistDashboard() {
         onHide={() => setShowEventModal(false)}
         onSaved={onEventSaved}
         editing={editingEvent}
-        districts={[]}
+        districts={districtsList}
       />
     </div>
   );
