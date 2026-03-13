@@ -7,7 +7,9 @@ import AnalyticsPanel from '../components/admin/AnalyticsPanel';
 import UsersTable from '../components/admin/UsersTable';
 import PendingApprovals from '../components/admin/PendingApprovals';
 import RatingsModeration from '../components/admin/RatingsModeration';
+import SupportPanel from '../components/admin/SupportPanel';
 import SettingsPanel from '../components/admin/SettingsPanel';
+
 
 export default function AdminDashboard() {
   /* ---------------- STATE ---------------- */
@@ -268,6 +270,10 @@ export default function AdminDashboard() {
 
         <Tab eventKey="moderation" title="Moderation">
           <RatingsModeration ratings={ratings} onDelete={moderateRating} />
+        </Tab>
+       
+        <Tab eventKey="support" title="Support">
+          <SupportPanel />
         </Tab>
 
         <Tab eventKey="settings" title="System Settings">
