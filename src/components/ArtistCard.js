@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, Button, Badge } from 'react-bootstrap';
 import { Link } from 'react-router-dom';
 import axios from '../api/axiosConfig';
@@ -7,6 +7,8 @@ import { FaStar, FaMapMarkerAlt } from 'react-icons/fa';
 /**
  * Compact artist card used in lists/grid.
  * Robustly supports several possible field names returned by the backend.
+ *
+ * Images are set to object-fit: contain so they DO NOT crop/zoom/stretch.
  */
 export default function ArtistCard({ artist = {}, selected }) {
   const cardClass = selected ? 'mb-3 shadow-sm border-success' : 'mb-3 shadow-sm';
@@ -131,16 +133,21 @@ export default function ArtistCard({ artist = {}, selected }) {
   // short bio
   const shortBio = bio ? (bio.length > 120 ? bio.slice(0, 117) + '...' : bio) : '';
 
+  // Image styles: contain to avoid cropping/zooming, centered with letterbox
+  const imgContainerStyle = { height: 180, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5' };
+  const imgStyle = { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' };
+
   return (
     <Card className={cardClass}>
-      <div style={{ height: 180, overflow: 'hidden' }}>
-        <Card.Img
-          variant="top"
-          src={imgSrc}
-          alt={`${name} photo`}
-          style={{ height: 180, objectFit: 'cover' }}
-          onError={handleImgError}
-        />
+      <div style={imgContainerStyle}>
+        {imgSrc ? (
+          // using plain <img> so we can fully control object-fit container behavior
+          // and preserve the onError handling
+          // alt attribute simplified to remove redundant words per eslint rule
+          <img src={imgSrc} alt={name} style={imgStyle} onError={handleImgError} />
+        ) : (
+          <div style={{ color: '#777' }}>No image</div>
+        )}
       </div>
 
       <Card.Body>
@@ -183,6 +190,6 @@ export default function ArtistCard({ artist = {}, selected }) {
           </div>
         </div>
       </Card.Body>
-    </Card>
+    </Card> 
   );
 }
