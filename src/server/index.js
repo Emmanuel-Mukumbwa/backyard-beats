@@ -17,7 +17,7 @@ const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const profileRoutes = require('./routes/profile.routes');
 
 app.use(cors({
-  origin: FRONTEND_ORIGIN,
+  origin: FRONTEND_ORIGIN, 
   credentials: true
 }));
 
