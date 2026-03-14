@@ -173,11 +173,7 @@ export default function AudioPlayer({ tracks = [], onPlay = null }) {
     setPlaying(true);
   }
 
-  function selectIndex(i) {
-    if (i < 0 || i >= tracks.length) return;
-    setCurrentIndex(i);
-    setPlaying(true);
-  }
+  
 
   const artworkRaw = getArtworkRaw(current);
   const artworkUrl = artworkRaw ? resolveToBackend(artworkRaw) : null;
