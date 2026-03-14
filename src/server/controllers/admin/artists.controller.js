@@ -39,7 +39,17 @@ function buildPublicUrl(value, type = 'generic') {
  */
 exports.pendingArtists = async (req, res, next) => {
   try {
-    // join users and districts so we can return district_name from users.district_id
+    const include = String(req.query.include || 'pending').toLowerCase();
+
+    let whereClause = `WHERE a.is_approved = 0 AND a.is_rejected = 0`;
+    if (include === 'all') {
+      whereClause = '';
+    } else if (include === 'approved') {
+      whereClause = `WHERE a.is_approved = 1`;
+    } else if (include === 'rejected') {
+      whereClause = `WHERE a.is_rejected = 1`;
+    }
+
     const [rows] = await pool.query(
       `SELECT
          a.id,
@@ -62,12 +72,11 @@ exports.pendingArtists = async (req, res, next) => {
        FROM artists a
        LEFT JOIN users u ON a.user_id = u.id
        LEFT JOIN districts d ON u.district_id = d.id
-       WHERE a.is_approved = 0 AND a.is_rejected = 0
+       ${whereClause}
        ORDER BY a.id DESC
        LIMIT 500`
     );
 
-    // normalize photoUrl -> public path and return a compact user object
     const mapped = rows.map(r => ({
       id: r.id,
       displayName: r.displayName,
@@ -75,7 +84,6 @@ exports.pendingArtists = async (req, res, next) => {
       photoUrl: buildPublicUrl(r.photoUrl, 'artist'),
       lat: r.lat,
       lng: r.lng,
-      // district comes from users.district_id -> districts.name
       district_id: r.district_id,
       district_name: r.district_name || null,
       avg_rating: r.avg_rating,
@@ -188,6 +196,78 @@ exports.rejectArtist = async (req, res, next) => {
     );
 
     res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /admin/pending/artists/:id/undo
+ * Resets approval/rejection flags and clears metadata for an artist.
+ */
+exports.undoArtist = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid artist id' });
+
+    // Ensure artist exists
+    const [existsRows] = await pool.query('SELECT id FROM artists WHERE id = ? LIMIT 1', [id]);
+    if (!existsRows || existsRows.length === 0) {
+      return res.status(404).json({ error: 'Artist not found' });
+    }
+
+    await pool.query(
+      `UPDATE artists
+       SET is_approved = 0,
+           is_rejected = 0,
+           approved_at = NULL,
+           rejected_at = NULL,
+           approved_by = NULL,
+           rejected_by = NULL,
+           rejection_reason = NULL
+       WHERE id = ?`,
+      [id]
+    );
+
+    const [rows] = await pool.query(
+      `SELECT a.id,
+              a.display_name AS displayName,
+              a.bio,
+              a.photo_url AS photoUrl,
+              u.id AS user_id,
+              u.username AS username,
+              u.district_id AS district_id,
+              d.name AS district_name,
+              a.avg_rating,
+              a.follower_count
+       FROM artists a
+       LEFT JOIN users u ON a.user_id = u.id
+       LEFT JOIN districts d ON u.district_id = d.id
+       WHERE a.id = ?
+       LIMIT 1`,
+      [id]
+    );
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ error: 'Artist not found after undo' });
+    }
+
+    const artist = {
+      id: rows[0].id,
+      displayName: rows[0].displayName,
+      bio: rows[0].bio,
+      photoUrl: buildPublicUrl(rows[0].photoUrl, 'artist'),
+      user: {
+        id: rows[0].user_id,
+        username: rows[0].username
+      },
+      district_id: rows[0].district_id,
+      district_name: rows[0].district_name || null,
+      avg_rating: rows[0].avg_rating,
+      follower_count: rows[0].follower_count
+    };
+
+    res.json({ success: true, artist });
   } catch (err) {
     next(err);
   }
