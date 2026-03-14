@@ -11,7 +11,7 @@ exports.getSettings = async (req, res, next) => {
       maintenanceMode: false
     };
     res.json({ settings });
-  } catch (err) {
+  } catch (err) { 
     next(err);
   }
 };
