@@ -18,6 +18,9 @@ import { AuthProvider } from './context/AuthContext';
 import RequireAuth from './components/RequireAuth';
 import RequireRole from './components/RequireRole';
 import EventDetail from './pages/EventDetail';
+import TermsAndConditions from './pages/TermsAndConditions';
+import PrivacyPolicy from './pages/PrivacyPolicy';
+import BrowseMusic from './pages/BrowseMusic';
 
 export default function App() {
   return (
@@ -33,6 +36,9 @@ export default function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/orientation" element={<Orientation />} />
+            <Route path="/music" element={<BrowseMusic />} />
+            <Route path="/terms" element={<TermsAndConditions />} />
+            <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route
               path="/onboard"
               element={
