@@ -1,9 +1,16 @@
 // src/components/FilterBar.js
 import React, { useEffect, useState } from 'react';
-import { Form, Row, Col, Button } from 'react-bootstrap';
+import { Form, Row, Col, InputGroup, Spinner } from 'react-bootstrap';
 import axios from '../api/axiosConfig';
+import { FaSearch } from 'react-icons/fa';
 
-export default function FilterBar({ filters, setFilters, onApply, onClear }) {
+/**
+ * Live filter bar — no Apply / Clear buttons.
+ * Props:
+ *  - filters: { district, genre, mood, q }
+ *  - setFilters: function to update filters
+ */
+export default function FilterBar({ filters, setFilters }) {
   const [districts, setDistricts] = useState([]);
   const [genres, setGenres] = useState([]);
   const [moods, setMoods] = useState([]);
@@ -35,10 +42,10 @@ export default function FilterBar({ filters, setFilters, onApply, onClear }) {
 
   return (
     <Form className="mb-3">
-      <Row className="g-2 align-items-end">
-        <Col xs={12} md={6}>
+      <Row className="g-2 align-items-center">
+        <Col xs={12} md={6} lg={3}>
           <Form.Group controlId="district">
-            <Form.Label>District</Form.Label>
+            <Form.Label className="small text-muted">District</Form.Label>
             <Form.Select
               value={filters.district}
               onChange={e => setFilters({ ...filters, district: e.target.value })}
@@ -50,9 +57,9 @@ export default function FilterBar({ filters, setFilters, onApply, onClear }) {
           </Form.Group>
         </Col>
 
-        <Col xs={6} md={3}>
+        <Col xs={6} md={3} lg={2}>
           <Form.Group controlId="genre">
-            <Form.Label>Genre</Form.Label>
+            <Form.Label className="small text-muted">Genre</Form.Label>
             <Form.Select
               value={filters.genre}
               onChange={e => setFilters({ ...filters, genre: e.target.value })}
@@ -64,9 +71,9 @@ export default function FilterBar({ filters, setFilters, onApply, onClear }) {
           </Form.Group>
         </Col>
 
-        <Col xs={6} md={3}>
+        <Col xs={6} md={3} lg={2}>
           <Form.Group controlId="mood">
-            <Form.Label>Mood</Form.Label>
+            <Form.Label className="small text-muted">Mood</Form.Label>
             <Form.Select
               value={filters.mood}
               onChange={e => setFilters({ ...filters, mood: e.target.value })}
@@ -78,20 +85,23 @@ export default function FilterBar({ filters, setFilters, onApply, onClear }) {
           </Form.Group>
         </Col>
 
-        <Col xs={12} md={8} className="mt-2">
-          <Form.Control
-            placeholder="Search artists or tracks..."
-            value={filters.q}
-            onChange={e => setFilters({ ...filters, q: e.target.value })}
-          />
-        </Col>
-
-        <Col xs={6} md={2} className="d-grid mt-2">
-          <Button variant="success" onClick={onApply}>Apply</Button>
-        </Col>
-
-        <Col xs={6} md={2} className="d-grid mt-2">
-          <Button variant="link" onClick={onClear}>Clear</Button>
+        <Col xs={12} md={12} lg={5}>
+          <Form.Group controlId="q">
+            <Form.Label className="small text-muted">Search</Form.Label>
+            <InputGroup>
+              <InputGroup.Text><FaSearch /></InputGroup.Text>
+              <Form.Control
+                placeholder="Search artists or tracks..."
+                value={filters.q}
+                onChange={e => setFilters({ ...filters, q: e.target.value })}
+              />
+              {loadingMeta && (
+                <InputGroup.Text>
+                  <Spinner animation="border" size="sm" />
+                </InputGroup.Text>
+              )}
+            </InputGroup>
+          </Form.Group>
         </Col>
       </Row>
     </Form>
