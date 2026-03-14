@@ -1,12 +1,10 @@
 // src/components/MyRatings.jsx
-import React, { useEffect, useState, useContext } from 'react';
+import React, { useEffect, useState} from 'react';
 import { ListGroup, Button, Spinner, Modal } from 'react-bootstrap';
 import axios from '../api/axiosConfig';
-import { AuthContext } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 export default function MyRatings() {
-  const { user } = useContext(AuthContext);
   const navigate = useNavigate();
   const [ratings, setRatings] = useState([]);
   const [loading, setLoading] = useState(true);
