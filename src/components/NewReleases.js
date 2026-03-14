@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import axios from '../api/axiosConfig';
 import { ListGroup, Spinner, Image, Button } from 'react-bootstrap';
-import { FaPlay, FaPause, FaDownload, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
+import { FaDownload, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 
 export default function NewReleases({ limit = 6, onSelect = () => {} }) {
   const [items, setItems] = useState([]);
@@ -10,22 +10,23 @@ export default function NewReleases({ limit = 6, onSelect = () => {} }) {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const playingRef = useRef(null); // currently playing audio element
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    let mounted = true;
+    mountedRef.current = true;
     setLoading(true);
     axios.get('/public/tracks/new-releases', { params: { limit, page } })
       .then(res => {
-        if (!mounted) return;
+        if (!mountedRef.current) return;
         const data = res.data || {};
         setItems(data.items || []);
         setTotal(data.total || 0);
       })
       .catch(() => {
-        if (mounted) setItems([]);
+        if (mountedRef.current) setItems([]);
       })
-      .finally(() => { if (mounted) setLoading(false); });
-    return () => { mounted = false; };
+      .finally(() => { if (mountedRef.current) setLoading(false); });
+    return () => { mountedRef.current = false; };
   }, [limit, page]);
 
   function handlePlay(audioEl) {
@@ -49,7 +50,7 @@ export default function NewReleases({ limit = 6, onSelect = () => {} }) {
     <div>
       <ListGroup size="sm" variant="flush">
         {items.map(t => {
-          const artistName = t.artist?.display_name || '';
+          const artistName = t.artist?.display_name || t.artist?.displayName || '';
           const artistId = t.artist?.id || null;
           const displayDate = t.release_date || t.created_at || null;
           const artwork = t.artwork_url || t.preview_artwork || null;
@@ -57,50 +58,70 @@ export default function NewReleases({ limit = 6, onSelect = () => {} }) {
           const download = t.download_url || preview || null;
 
           return (
-            <ListGroup.Item key={t.id} className="d-flex align-items-center">
-              {artwork ? (
-                <Image src={artwork} rounded style={{ width: 56, height: 56, objectFit: 'cover', marginRight: 10 }} />
-              ) : (
-                <div style={{ width: 56, height: 56, marginRight: 10, background: '#eee', borderRadius: 6 }} />
-              )}
-
-              <div className="flex-grow-1">
-                <div className="d-flex align-items-center">
-                  <div className="small fw-bold text-truncate" style={{ maxWidth: 160 }}>{t.title}</div>
-                  <div className="small text-muted ms-2 text-truncate" style={{ maxWidth: 120 }}>{artistName}</div>
-                </div>
-                <div className="small text-muted">
-                  {t.genre ? `${t.genre} • ` : ''}{displayDate ? new Date(displayDate).toLocaleDateString() : ''}
-                </div>
-              </div>
-
-              <div className="d-flex align-items-center ms-2">
-                {preview ? (
-                  <audio
-                    controls
-                    preload="none"
-                    style={{ width: 180 }}
-                    src={preview}
-                    onPlay={e => handlePlay(e.target)}
-                    onPause={e => handlePause(e.target)}
-                    onEnded={() => { if (playingRef.current) playingRef.current = null; }}
-                  />
+            <ListGroup.Item key={t.id} className="py-2">
+              <div className="d-flex align-items-start">
+                {/* Artwork */}
+                {artwork ? (
+                  <Image src={artwork} rounded style={{ width: 56, height: 56, objectFit: 'cover', marginRight: 12 }} />
                 ) : (
-                  <div className="small text-muted me-2">No preview</div>
+                  <div style={{ width: 56, height: 56, marginRight: 12, background: '#eee', borderRadius: 6 }} />
                 )}
 
-                {download ? (
-                  <Button
-                    size="sm"
-                    variant="link"
-                    href={download}
-                    download
-                    title="Download track"
-                    className="ms-2"
-                  >
-                    <FaDownload />
-                  </Button>
-                ) : null}
+                {/* Title + meta + thin controls under title */}
+                <div className="flex-grow-1">
+                  <div className="d-flex align-items-start justify-content-between">
+                    <div style={{ minWidth: 0 }}>
+                      <div
+                        className="small fw-bold text-truncate"
+                        style={{ maxWidth: '100%', cursor: artistId ? 'pointer' : 'default' }}
+                        onClick={() => artistId && onSelect(artistId)}
+                        title={t.title}
+                      >
+                        {t.title}
+                      </div>
+                      <div className="small text-muted" style={{ marginTop: 4 }}>
+                        {artistName ? `${artistName} ` : ''}{t.genre ? `• ${t.genre} ` : ''}{displayDate ? `• ${new Date(displayDate).toLocaleDateString()}` : ''}
+                      </div>
+                    </div>
+
+                    {/* optional plays count (small) */}
+                    <div className="ms-2 text-muted small" style={{ whiteSpace: 'nowrap' }}>
+                      {t.plays ? Number(t.plays) : ''}
+                    </div>
+                  </div>
+
+                  {/* compact audio + download row under title */}
+                  <div className="d-flex align-items-center mt-2">
+                    {preview ? (
+                      <audio
+                        controls
+                        preload="none"
+                        style={{ width: 140, height: 30 }}
+                        src={preview}
+                        onPlay={e => handlePlay(e.target)}
+                        onPause={e => handlePause(e.target)}
+                        onEnded={() => { if (playingRef.current) playingRef.current = null; }}
+                        aria-label={`Preview for ${t.title}`}
+                      />
+                    ) : (
+                      <div className="small text-muted me-2">No preview</div>
+                    )}
+
+                    {download ? (
+                      <Button
+                        size="sm"
+                        variant="link"
+                        href={download}
+                        download
+                        title="Download track"
+                        className="ms-3 p-0"
+                        aria-label={`Download ${t.title}`}
+                      >
+                        <FaDownload />
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             </ListGroup.Item>
           );
