@@ -148,7 +148,6 @@ export default function Orientation() {
                   </Card.Text>
                 </div>
               </div>
-
               <div className="mt-auto">
                 <Button variant="outline-success" size="sm" onClick={() => setShowVideo(true)}>
                   Watch quick walkthrough
