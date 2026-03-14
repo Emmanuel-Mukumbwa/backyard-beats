@@ -10,6 +10,7 @@ CREATE TABLE `users` (
   `id` int NOT NULL AUTO_INCREMENT,
   `username` varchar(50) NOT NULL,
   `email` varchar(100) NOT NULL,
+  `district_id` int DEFAULT NULL,
   `password_hash` varchar(255) NOT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `role` enum('fan','artist','admin') NOT NULL DEFAULT 'fan',
@@ -22,8 +23,10 @@ CREATE TABLE `users` (
   UNIQUE KEY `email` (`email`),
   KEY `idx_users_deleted_at` (`deleted_at`),
   KEY `fk_users_deleted_by` (`deleted_by`),
-  CONSTRAINT `fk_users_deleted_by` FOREIGN KEY (`deleted_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=12 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  KEY `fk_users_district` (`district_id`),
+  CONSTRAINT `fk_users_deleted_by` FOREIGN KEY (`deleted_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_users_district` FOREIGN KEY (`district_id`) REFERENCES `districts` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=14 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
 
 CREATE TABLE `artists` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -32,7 +35,6 @@ CREATE TABLE `artists` (
   `photo_url` varchar(255) DEFAULT NULL,
   `lat` decimal(9,6) DEFAULT NULL,
   `lng` decimal(9,6) DEFAULT NULL,
-  `district_id` int DEFAULT NULL,
   `avg_rating` decimal(3,2) DEFAULT NULL,
   `has_upcoming_event` tinyint(1) DEFAULT '0',
   `is_approved` tinyint(1) NOT NULL DEFAULT '0',
@@ -45,12 +47,10 @@ CREATE TABLE `artists` (
   `user_id` int DEFAULT NULL,
   `follower_count` int NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`),
-  KEY `district_id` (`district_id`),
   KEY `fk_artists_user` (`user_id`),
   KEY `idx_artists_is_pending` (`is_approved`,`is_rejected`),
-  CONSTRAINT `artists_ibfk_1` FOREIGN KEY (`district_id`) REFERENCES `districts` (`id`),
   CONSTRAINT `fk_artists_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
 
 CREATE TABLE `tracks` (
   `id` int NOT NULL,
@@ -103,45 +103,54 @@ CREATE TABLE `events` (
   KEY `idx_events_is_pending` (`is_approved`,`is_rejected`),
   CONSTRAINT `events_ibfk_1` FOREIGN KEY (`artist_id`) REFERENCES `artists` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `events_ibfk_2` FOREIGN KEY (`district_id`) REFERENCES `districts` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
 
-CREATE TABLE ratings (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  artist_id INT,
-  user_id INT,
-  rating INT CHECK (rating >= 1 AND rating <= 5),
-  comment TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (artist_id) REFERENCES artists(id),
-  FOREIGN KEY (user_id) REFERENCES users(id)
-);
+CREATE TABLE `ratings` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `artist_id` int DEFAULT NULL,
+  `user_id` int DEFAULT NULL,
+  `rating` int DEFAULT NULL,
+  `comment` text,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_artist_user` (`artist_id`,`user_id`),
+  KEY `user_id` (`user_id`),
+  CONSTRAINT `ratings_ibfk_1` FOREIGN KEY (`artist_id`) REFERENCES `artists` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `ratings_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`),
+  CONSTRAINT `ratings_chk_1` CHECK (((`rating` >= 1) and (`rating` <= 5)))
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
 
--- Genres and moods as many-to-many (optional, can be normalized further)
-CREATE TABLE genres (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(50) NOT NULL UNIQUE
-);
+CREATE TABLE `genres` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `name` varchar(50) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `name` (`name`)
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
 
-CREATE TABLE artist_genres (
-  artist_id INT,
-  genre_id INT, 
-  PRIMARY KEY (artist_id, genre_id),
-  FOREIGN KEY (artist_id) REFERENCES artists(id),
-  FOREIGN KEY (genre_id) REFERENCES genres(id)
-);
+CREATE TABLE `artist_genres` (
+  `artist_id` int NOT NULL,
+  `genre_id` int NOT NULL,
+  PRIMARY KEY (`artist_id`,`genre_id`),
+  KEY `genre_id` (`genre_id`),
+  CONSTRAINT `artist_genres_ibfk_1` FOREIGN KEY (`artist_id`) REFERENCES `artists` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `artist_genres_ibfk_2` FOREIGN KEY (`genre_id`) REFERENCES `genres` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
 
-CREATE TABLE moods (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(50) NOT NULL UNIQUE
-);
+CREATE TABLE `moods` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `name` varchar(50) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `name` (`name`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
 
-CREATE TABLE artist_moods (
-  artist_id INT,
-  mood_id INT,
-  PRIMARY KEY (artist_id, mood_id),
-  FOREIGN KEY (artist_id) REFERENCES artists(id),
-  FOREIGN KEY (mood_id) REFERENCES moods(id)
-);
+CREATE TABLE `artist_moods` (
+  `artist_id` int NOT NULL,
+  `mood_id` int NOT NULL,
+  PRIMARY KEY (`artist_id`,`mood_id`),
+  KEY `mood_id` (`mood_id`),
+  CONSTRAINT `artist_moods_ibfk_1` FOREIGN KEY (`artist_id`) REFERENCES `artists` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `artist_moods_ibfk_2` FOREIGN KEY (`mood_id`) REFERENCES `moods` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
 
 CREATE TABLE `rsvps` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -180,7 +189,7 @@ CREATE TABLE `playlist_tracks` (
   KEY `track_id` (`track_id`),
   CONSTRAINT `playlist_tracks_ibfk_1` FOREIGN KEY (`playlist_id`) REFERENCES `playlists` (`id`) ON DELETE CASCADE,
   CONSTRAINT `playlist_tracks_ibfk_2` FOREIGN KEY (`track_id`) REFERENCES `tracks` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
 
 CREATE TABLE `listens` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -197,7 +206,7 @@ CREATE TABLE `listens` (
   CONSTRAINT `fk_listens_artist` FOREIGN KEY (`artist_id`) REFERENCES `artists` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_listens_track` FOREIGN KEY (`track_id`) REFERENCES `tracks` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_listens_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
 
 CREATE TABLE `favorites` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -210,53 +219,73 @@ CREATE TABLE `favorites` (
   KEY `fk_favorites_artist` (`artist_id`),
   CONSTRAINT `fk_favorites_artist` FOREIGN KEY (`artist_id`) REFERENCES `artists` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_favorites_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
 
--- 1. support_tickets
-CREATE TABLE support_tickets (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  user_id BIGINT UNSIGNED NOT NULL,             -- creator
-  subject VARCHAR(255) NOT NULL,
-  body TEXT NOT NULL,                           -- initial message
-  type ENUM('appeal','bug','question','other') DEFAULT 'other',
-  target_type ENUM('track','event','artist','none') DEFAULT 'none',
-  target_id BIGINT UNSIGNED DEFAULT NULL,       -- id of track/event/etc
-  status ENUM('open','pending','resolved','closed','spam') DEFAULT 'open',
-  priority ENUM('low','normal','high') DEFAULT 'normal',
-  assignee_id BIGINT UNSIGNED DEFAULT NULL,     -- admin assigned
-  is_read TINYINT(1) DEFAULT 0,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX (user_id),
-  INDEX (status),
-  INDEX (target_type, target_id)
-);
+CREATE TABLE `support_tickets` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `subject` varchar(255) NOT NULL,
+  `body` text NOT NULL,
+  `type` enum('appeal','bug','question','other') DEFAULT 'other',
+  `target_type` enum('track','event','artist','none') DEFAULT 'none',
+  `target_id` bigint unsigned DEFAULT NULL,
+  `status` enum('open','pending','resolved','closed','spam') DEFAULT 'open',
+  `priority` enum('low','normal','high') DEFAULT 'normal',
+  `assignee_id` bigint unsigned DEFAULT NULL,
+  `is_read` tinyint(1) DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `user_id` (`user_id`),
+  KEY `status` (`status`),
+  KEY `target_type` (`target_type`,`target_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
 
--- 2. support_messages (thread)
-CREATE TABLE support_messages (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  ticket_id BIGINT UNSIGNED NOT NULL,
-  sender_user_id BIGINT UNSIGNED DEFAULT NULL,  -- null if system
-  sender_role ENUM('user','admin','system') DEFAULT 'user',
-  body TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (ticket_id) REFERENCES support_tickets(id) ON DELETE CASCADE,
-  INDEX (ticket_id),
-  INDEX (sender_user_id)
-);
+CREATE TABLE `support_messages` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `ticket_id` bigint unsigned NOT NULL,
+  `sender_user_id` bigint unsigned DEFAULT NULL,
+  `sender_role` enum('user','admin','system') DEFAULT 'user',
+  `body` text NOT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `ticket_id` (`ticket_id`),
+  KEY `sender_user_id` (`sender_user_id`),
+  CONSTRAINT `support_messages_ibfk_1` FOREIGN KEY (`ticket_id`) REFERENCES `support_tickets` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
 
--- 3. support_attachments
-CREATE TABLE support_attachments (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  message_id BIGINT UNSIGNED DEFAULT NULL,   -- attachment belongs to a message (preferred)
-  ticket_id BIGINT UNSIGNED DEFAULT NULL,    -- or belong directly to ticket
-  filename VARCHAR(255) NOT NULL,
-  path VARCHAR(1024) NOT NULL,
-  mime VARCHAR(100),
-  size INT UNSIGNED,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (message_id) REFERENCES support_messages(id) ON DELETE CASCADE,
-  FOREIGN KEY (ticket_id) REFERENCES support_tickets(id) ON DELETE CASCADE,
-  INDEX (ticket_id),
-  INDEX (message_id)
-);
+CREATE TABLE `support_attachments` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `message_id` bigint unsigned DEFAULT NULL,
+  `ticket_id` bigint unsigned DEFAULT NULL,
+  `filename` varchar(255) NOT NULL,
+  `path` varchar(1024) NOT NULL,
+  `mime` varchar(100) DEFAULT NULL,
+  `size` int unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `ticket_id` (`ticket_id`),
+  KEY `message_id` (`message_id`),
+  CONSTRAINT `support_attachments_ibfk_1` FOREIGN KEY (`message_id`) REFERENCES `support_messages` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `support_attachments_ibfk_2` FOREIGN KEY (`ticket_id`) REFERENCES `support_tickets` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+
+CREATE TABLE `terms_and_conditions` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `title` varchar(255) NOT NULL,
+  `body` text NOT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+
+CREATE TABLE `privacy_policies` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `title` varchar(255) NOT NULL,
+  `body` text NOT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
