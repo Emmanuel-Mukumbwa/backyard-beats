@@ -1,3 +1,4 @@
+// src/components/Navbar.jsx
 import React, { useContext, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Navbar as RBNavbar, Nav as RBNav, Container as RBContainer, NavDropdown, Image } from 'react-bootstrap';
@@ -33,7 +34,6 @@ export default function Navbar() {
     }
   }
 
-  function handleLogoutClick(e) { e.preventDefault(); setShowLogout(true); }
   function handleCancelLogout() { setShowLogout(false); }
 
   const userDisplay = user?.displayName || user?.username || '';
@@ -50,6 +50,9 @@ export default function Navbar() {
             <RBNav className="ms-auto" onSelect={() => setExpanded(false)}>
               <RBNav.Link as={Link} to="/"><FaHome className="me-1" />Home</RBNav.Link>
               <RBNav.Link as={Link} to="/events"><FaCalendarAlt className="me-1" />Events</RBNav.Link>
+
+              {/* NEW: Music / Browse link */}
+              <RBNav.Link as={Link} to="/music"><FaMusic className="me-1" />Music</RBNav.Link>
 
               {user?.role === 'admin' && (
                 <RBNav.Link as={Link} to="/admin"><FaTools className="me-1" />Admin</RBNav.Link>
