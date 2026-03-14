@@ -1,4 +1,3 @@
-// src/components/FavoriteArtists.js
 import React, { useEffect, useState, useContext } from 'react';
 import { Card, Button, Row, Col, Image, Spinner, Badge, OverlayTrigger, Tooltip } from 'react-bootstrap';
 import axios from '../api/axiosConfig';
@@ -78,23 +77,6 @@ export default function FavoriteArtists({ max = 12, onFollowChange }) {
     } catch (err) {
       console.error('Unfollow failed', err);
       setFavorites(prev); // revert
-    } finally {
-      setProcessing(p => { const cp = { ...p }; delete cp[artistId]; return cp; });
-    }
-  };
-
-  // Follow from artist card (optimistic + refresh)
-  const follow = async (artistId) => {
-    if (!user) return window.location.href = '/login';
-    setProcessing(p => ({ ...p, [artistId]: true }));
-    try {
-      await axios.post('/favorites', { artist_id: artistId });
-      // refresh list to reflect latest metadata (follower_count etc)
-      const res = await axios.get('/favorites');
-      setFavorites(Array.isArray(res.data) ? res.data.slice(0, max) : []);
-      if (onFollowChange) onFollowChange({ artistId, following: true });
-    } catch (err) {
-      console.error('Follow failed', err);
     } finally {
       setProcessing(p => { const cp = { ...p }; delete cp[artistId]; return cp; });
     }
