@@ -71,7 +71,7 @@ export default function Hero() {
             </h5>
 
             <h1 id="hero-heading" className="hero-title mb-3">
-              BackyardBeats — Malawi’s home for local music
+              Welcome to BackyardBeats — Malawi’s home for local music
             </h1>
 
             <p className="lead hero-subtext mb-4">
