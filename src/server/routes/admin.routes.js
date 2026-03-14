@@ -46,25 +46,31 @@ router.post('/users/:id/restore', /* auth, isAdmin, */ admin.restoreUser);
 assertHandler('pendingArtists');
 assertHandler('approveArtist');
 assertHandler('rejectArtist');
+assertHandler('undoArtist'); // new undo handler for artists
 router.get('/pending/artists', /* auth, isAdmin, */ admin.pendingArtists);
 router.post('/pending/artists/:id/approve', /* auth, isAdmin, */ admin.approveArtist);
 router.post('/pending/artists/:id/reject', /* auth, isAdmin, */ admin.rejectArtist);
+router.post('/pending/artists/:id/undo', /* auth, isAdmin, */ admin.undoArtist); // new route
 
 // Tracks approvals
 assertHandler('pendingTracks');
 assertHandler('approveTrack');
 assertHandler('rejectTrack');
+assertHandler('undoTrack'); // new undo handler
 router.get('/pending/tracks', /* auth, isAdmin, */ admin.pendingTracks);
 router.post('/pending/tracks/:id/approve', /* auth, isAdmin, */ admin.approveTrack);
 router.post('/pending/tracks/:id/reject', /* auth, isAdmin, */ admin.rejectTrack);
+router.post('/pending/tracks/:id/undo', /* auth, isAdmin, */ admin.undoTrack); // new route
 
 // Events approvals
 assertHandler('pendingEvents');
 assertHandler('approveEvent');
 assertHandler('rejectEvent');
+assertHandler('undoEvent'); // new undo handler
 router.get('/pending/events', /* auth, isAdmin, */ admin.pendingEvents);
 router.post('/pending/events/:id/approve', /* auth, isAdmin, */ admin.approveEvent);
 router.post('/pending/events/:id/reject', /* auth, isAdmin, */ admin.rejectEvent);
+router.post('/pending/events/:id/undo', /* auth, isAdmin, */ admin.undoEvent); // new route
 
 // Ratings moderation
 assertHandler('listRatings');
@@ -77,5 +83,45 @@ assertHandler('getSettings');
 assertHandler('updateSettings');
 router.get('/settings', /* auth, isAdmin, */ admin.getSettings);
 router.post('/settings', /* auth, isAdmin, */ admin.updateSettings);
+
+// Genres
+assertHandler('listGenres');
+assertHandler('createGenre');
+assertHandler('updateGenre');
+assertHandler('deleteGenre');
+router.get('/genres', /* auth, isAdmin, */ admin.listGenres);
+router.post('/genres', /* auth, isAdmin, */ admin.createGenre);
+router.put('/genres/:id', /* auth, isAdmin, */ admin.updateGenre);
+router.delete('/genres/:id', /* auth, isAdmin, */ admin.deleteGenre);
+
+// Moods
+assertHandler('listMoods');
+assertHandler('createMood');
+assertHandler('updateMood');
+assertHandler('deleteMood');
+router.get('/moods', /* auth, isAdmin, */ admin.listMoods);
+router.post('/moods', /* auth, isAdmin, */ admin.createMood);
+router.put('/moods/:id', /* auth, isAdmin, */ admin.updateMood);
+router.delete('/moods/:id', /* auth, isAdmin, */ admin.deleteMood);
+
+// Terms & Conditions (admin)
+assertHandler('listTerms');
+assertHandler('createTerm');
+assertHandler('updateTerm');
+assertHandler('deleteTerm');
+router.get('/terms', /* auth, isAdmin, */ admin.listTerms);
+router.post('/terms', /* auth, isAdmin, */ admin.createTerm);
+router.put('/terms/:id', /* auth, isAdmin, */ admin.updateTerm);
+router.delete('/terms/:id', /* auth, isAdmin, */ admin.deleteTerm);
+
+// Privacy Policies (admin) - NEW
+assertHandler('listPrivacy');
+assertHandler('createPrivacy');
+assertHandler('updatePrivacy');
+assertHandler('deletePrivacy');
+router.get('/privacy', /* auth, isAdmin, */ admin.listPrivacy);
+router.post('/privacy', /* auth, isAdmin, */ admin.createPrivacy);
+router.put('/privacy/:id', /* auth, isAdmin, */ admin.updatePrivacy);
+router.delete('/privacy/:id', /* auth, isAdmin, */ admin.deletePrivacy);
 
 module.exports = router;
