@@ -1,32 +1,29 @@
 // src/pages/FanDashboard.jsx
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import {
   Tabs,
   Tab,
-  Card,
   Button,
   ListGroup,
   Alert,
   Modal,
-  Form,
-  Row,
-  Col
+  Form
 } from 'react-bootstrap';
 import axios from '../api/axiosConfig';
 import FavoriteArtists from '../components/FavoriteArtists';
 import MyEvents from '../components/MyEvents';
 import { AuthContext } from '../context/AuthContext';
 import AudioPlayer from '../components/AudioPlayer';
-import RecentlyUploaded from '../components/RecentlyUploaded'; 
+import RecentlyUploaded from '../components/RecentlyUploaded';
 import MyRatings from '../components/MyRatings';
 import PlaylistsList from '../components/PlaylistsList';
+import ToastMessage from '../components/ToastMessage';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 export default function FanDashboard() {
   const { user } = useContext(AuthContext);
-  const [favorites, setFavorites] = useState([]);
+  // removed unused favorites, rsvpEvents, ratings to satisfy ESLint
   const [recentTracks, setRecentTracks] = useState([]);
-  const [rsvpEvents, setRsvpEvents] = useState([]);
-  const [ratings, setRatings] = useState([]);
   const [playlists, setPlaylists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -35,10 +32,45 @@ export default function FanDashboard() {
   const [showPlaylistModal, setShowPlaylistModal] = useState(false);
   const [playlistForm, setPlaylistForm] = useState({ name: '', description: '' });
 
+  // controlled tabs: persist across refresh (hash -> localStorage fallback)
+  const [activeTab, setActiveTab] = useState('favorites');
+  const toastTimerRef = useRef(null);
+
+  // toast state
+  const [toast, setToast] = useState({ show: false, message: '', variant: 'success', delay: 3500 });
+
   useEffect(() => {
+    // initialize active tab from URL hash or localStorage
+    const hashKey = (window.location.hash || '').replace('#', '');
+    const saved = localStorage.getItem('fanDashboard.activeTab');
+    const initial = hashKey || saved || 'favorites';
+    const allowed = ['favorites', 'recent', 'new', 'events', 'ratings', 'playlists'];
+    setActiveTab(allowed.includes(initial) ? initial : 'favorites');
+
+    // load data
     loadDashboardData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // persist tab function
+  const persistTab = (tabKey) => {
+    try {
+      localStorage.setItem('fanDashboard.activeTab', tabKey);
+      const url = new URL(window.location.href);
+      url.hash = `#${tabKey}`;
+      window.history.replaceState(null, '', url.toString());
+    } catch (e) {
+      // ignore storage/url errors
+      // eslint-disable-next-line no-console
+      console.debug('persistTab error', e);
+    }
+  };
+
+  const handleTabSelect = (k) => {
+    if (!k) return;
+    setActiveTab(k);
+    persistTab(k);
+  };
 
   async function loadDashboardData() {
     setLoading(true);
@@ -46,10 +78,9 @@ export default function FanDashboard() {
     try {
       // favorites and other widgets load from separate endpoints (FavoriteArtists handles /favorites)
       // Fetch recent listens for this fan and other small widgets
-      const [listensRes, eventsRes, ratingsRes] = await Promise.all([
+      const [listensRes] = await Promise.all([
         axios.get('/fan/listens').catch(() => ({ data: [] })), // recent listens
-        axios.get('/events').catch(() => ({ data: [] })),     // RSVP/events (fallback)
-        axios.get('/ratings/user').catch(() => ({ data: [] })) // optional: implement server-side if absent
+        axios.get('/events').catch(() => ({ data: [] }))     // fallback events
       ]);
 
       // Map listens to AudioPlayer-friendly tracks array. API returns { listen_id, played_at, track: {...}, artist: {...} }
@@ -70,8 +101,7 @@ export default function FanDashboard() {
       setRecentTracks(mappedTracks);
 
       // For other parts of the dashboard keep your existing approach or replace with API calls
-      setRsvpEvents(Array.isArray(eventsRes.data) ? eventsRes.data : []);
-      setRatings(Array.isArray(ratingsRes.data) ? ratingsRes.data : []);
+      // rsvpEvents/ratings were not used in UI, so we do not store them
       setPlaylists([]); // keep empty or fetch /fan/playlists if you implement them
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Failed to load dashboard');
@@ -80,13 +110,29 @@ export default function FanDashboard() {
     }
   }
 
+  // toast helpers
+  const showSuccessToast = (message = 'Done', delay = 3500) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ show: true, message, variant: 'success', delay });
+    toastTimerRef.current = setTimeout(() => setToast(t => ({ ...t, show: false })), delay + 200);
+  };
+
+  const showErrorToast = (message = 'Error', delay = 5000) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ show: true, message, variant: 'danger', delay });
+    toastTimerRef.current = setTimeout(() => setToast(t => ({ ...t, show: false })), delay + 200);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
   // When AudioPlayer starts playing a track, we POST /fan/listens to record it.
-  // AudioPlayer will call this when playback begins.
   const handleRecordPlay = async (track) => {
-    // track shape is what we passed to AudioPlayer (see mappedTracks)
-    if (!user || !user.id) return; // only record when logged in
+    if (!user || !user.id) return;
     try {
-      // safe: if track.id is null (no DB track), still send artist if available
       await axios.post('/fan/listens', {
         track_id: track.id || null,
         artist_id: track.artist_id || null
@@ -109,36 +155,54 @@ export default function FanDashboard() {
       }));
       setRecentTracks(mapped);
     } catch (err) {
-      // non-fatal: record failure is not blocking playback
       console.warn('Could not record listen', err);
     }
   };
 
   const handlePlaylistSubmit = async (e) => {
     e.preventDefault();
+    if (!playlistForm.name || playlistForm.name.trim().length === 0) {
+      showErrorToast('Please provide a playlist name');
+      return;
+    }
+
     const newPlaylist = {
       id: Date.now(),
-      name: playlistForm.name,
-      description: playlistForm.description,
+      name: playlistForm.name.trim(),
+      description: playlistForm.description || '',
       tracks: []
     };
-    setPlaylists([...playlists, newPlaylist]);
+    setPlaylists(prev => [newPlaylist, ...prev]);
     setShowPlaylistModal(false);
     setPlaylistForm({ name: '', description: '' });
+
+    showSuccessToast('Playlist created');
+    setActiveTab('playlists');
+    persistTab('playlists');
   };
 
   const deletePlaylist = (id) => {
     if (!window.confirm('Delete this playlist?')) return;
-    setPlaylists(playlists.filter(p => p.id !== id));
+    setPlaylists(prev => prev.filter(p => p.id !== id));
+    showSuccessToast('Playlist deleted');
   };
 
-  if (loading) return <div className="text-center py-5">Loading dashboard...</div>;
+  if (loading) return <div className="text-center py-5"><LoadingSpinner size="lg" /></div>;
   if (error) return <Alert variant="danger">{error}</Alert>;
 
   return (
     <div>
+      <ToastMessage
+        show={toast.show}
+        onClose={() => setToast(prev => ({ ...prev, show: false }))}
+        message={toast.message}
+        variant={toast.variant}
+        delay={toast.delay}
+        position="top-end"
+      />
+
       <h2 className="mb-4">Fan Dashboard</h2>
-      <Tabs defaultActiveKey="favorites" id="fan-dashboard-tabs">
+      <Tabs activeKey={activeTab} id="fan-dashboard-tabs" onSelect={handleTabSelect}>
         <Tab eventKey="favorites" title="Favorite Artists">
           <div className="mt-3">
             <h5>My Favorite Artists</h5>
@@ -152,7 +216,6 @@ export default function FanDashboard() {
             {recentTracks.length > 0 ? (
               <>
                 <AudioPlayer tracks={recentTracks} onPlay={handleRecordPlay} />
-                {/* small history list below player */}
                 <ListGroup className="mt-3">
                   {recentTracks.slice(0, 12).map((t, i) => (
                     <ListGroup.Item key={`${t.listen_id || t.id}-${i}`}>
@@ -178,11 +241,9 @@ export default function FanDashboard() {
         <Tab eventKey="new" title="New Releases">
           <div className="mt-3">
             <RecentlyUploaded limit={16} onRecordPlay={async (track) => {
-              // When a fan plays a recent upload, record it (we already have handleRecordPlay; reuse it)
               if (!user || !user.id) return;
               try {
                 await axios.post('/fan/listens', { track_id: track.id, artist_id: track.artist_id || null });
-                // refresh recently played list
                 const res = await axios.get('/fan/listens');
                 const listens = Array.isArray(res.data) ? res.data : [];
                 const mapped = listens.map(l => ({
@@ -221,7 +282,11 @@ export default function FanDashboard() {
 
         <Tab eventKey="playlists" title="Playlists">
           <div className="mt-3">
-            <PlaylistsList />
+            <div className="d-flex justify-content-between align-items-center mb-3">
+              <h5>Your Playlists</h5>
+              <Button size="sm" onClick={() => setShowPlaylistModal(true)}>Create Playlist</Button>
+            </div>
+            <PlaylistsList playlists={playlists} onDelete={deletePlaylist} />
           </div>
         </Tab>
       </Tabs>
@@ -235,16 +300,16 @@ export default function FanDashboard() {
           <Modal.Body>
             <Form.Group className="mb-3">
               <Form.Label>Name</Form.Label>
-              <Form.Control type="text" value={playlistForm.name} onChange={e => setPlaylistForm({...playlistForm, name: e.target.value})} required />
+              <Form.Control type="text" value={playlistForm.name} placeholder="e.g., Chill Vibes" onChange={e => setPlaylistForm({ ...playlistForm, name: e.target.value })} required />
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Description</Form.Label>
-              <Form.Control as="textarea" rows={3} value={playlistForm.description} onChange={e => setPlaylistForm({...playlistForm, description: e.target.value})} />
+              <Form.Control as="textarea" rows={3} value={playlistForm.description} placeholder="What this playlist is for..." onChange={e => setPlaylistForm({ ...playlistForm, description: e.target.value })} />
             </Form.Group>
           </Modal.Body>
           <Modal.Footer>
             <Button variant="secondary" onClick={() => setShowPlaylistModal(false)}>Cancel</Button>
-            <Button type="submit">Create</Button>
+            <Button type="submit" variant="success">Create</Button>
           </Modal.Footer>
         </Form>
       </Modal>
