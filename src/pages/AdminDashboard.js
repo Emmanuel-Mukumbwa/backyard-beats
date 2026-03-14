@@ -1,5 +1,4 @@
-// src/pages/AdminDashboard.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Tabs, Tab, Alert, Modal, Form, Button } from 'react-bootstrap';
 import axios from '../api/axiosConfig';
 
@@ -8,8 +7,13 @@ import UsersTable from '../components/admin/UsersTable';
 import PendingApprovals from '../components/admin/PendingApprovals';
 import RatingsModeration from '../components/admin/RatingsModeration';
 import SupportPanel from '../components/admin/SupportPanel';
-import SettingsPanel from '../components/admin/SettingsPanel';
+import SettingsPanel from '../components/admin/SettingsPanel'; 
 
+import ToastMessage from '../components/ToastMessage';
+import LoadingSpinner from '../components/LoadingSpinner';
+import ConfirmModal from '../components/ConfirmModal';
+
+const STORAGE_KEY = 'admin_active_tab';
 
 export default function AdminDashboard() {
   /* ---------------- STATE ---------------- */
@@ -42,24 +46,65 @@ export default function AdminDashboard() {
     banned: false
   });
 
-  /* ---------------- LOAD DATA ---------------- */
+  /* confirm modal state (reusable) */
+  const [confirmState, setConfirmState] = useState({
+    show: false,
+    title: '',
+    message: '',
+    onConfirm: null,
+    confirmText: 'Confirm',
+    variant: 'danger'
+  });
+
+  /* toast state (renamed to avoid accidental shadowing) */
+  const [globalToast, setGlobalToast] = useState({ show: false, message: '', variant: 'success', delay: 4000, title: '' });
+
+  /* persisted active tab */
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      return saved || 'analytics';
+    } catch {
+      return 'analytics';
+    }
+  });
+
+  const toastTimerRef = useRef(null);
+
+  useEffect(() => {
+    // keep saved tab in localStorage
+    try { localStorage.setItem(STORAGE_KEY, activeTab); } catch (e) { /* ignore */ }
+  }, [activeTab]);
+
   useEffect(() => {
     loadDashboardData();
     fetchUsers();
+    // cleanup toast timer on unmount
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* helper to show toast using shared ToastMessage */
+  const showToast = (message, variant = 'success', delay = 4000, title = '') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setGlobalToast({ show: true, message, variant, delay, title });
+    toastTimerRef.current = setTimeout(() => setGlobalToast(t => ({ ...t, show: false })), delay + 200);
+  };
+
+  /* ---------------- LOAD DATA ---------------- */
   async function loadDashboardData() {
     setLoading(true);
     setError(null);
 
     const endpoints = [
       { name: 'analytics', url: '/admin/analytics' },
-      { name: 'pendingArtists', url: '/admin/pending/artists' },
-      { name: 'pendingTracks', url: '/admin/pending/tracks' },
-      { name: 'pendingEvents', url: '/admin/pending/events' },
+      { name: 'pendingArtists', url: '/admin/pending/artists?include=all' },
+      { name: 'pendingTracks', url: '/admin/pending/tracks?include=all' },
+      { name: 'pendingEvents', url: '/admin/pending/events?include=all' },
       { name: 'settings', url: '/admin/settings' },
-      { name: 'ratings', url: '/admin/ratings' } // ratings list
+      { name: 'ratings', url: '/admin/ratings' }
     ];
 
     try {
@@ -100,11 +145,15 @@ export default function AdminDashboard() {
       });
 
       if (failed.length) {
-        setError(`Failed loading: ${failed.join(', ')}`);
+        const msg = `Failed loading: ${failed.join(', ')}`;
+        setError(msg);
+        showToast(msg, 'danger', 6000, 'Load error');
       }
     } catch (err) {
       console.error(err);
-      setError(err.message || 'Unexpected error');
+      const msg = err.message || 'Unexpected error';
+      setError(msg);
+      showToast(msg, 'danger', 6000, 'Load error');
     } finally {
       setLoading(false);
     }
@@ -118,37 +167,60 @@ export default function AdminDashboard() {
       setUsersMeta(res.data.meta || {});
     } catch (err) {
       console.error('Failed loading users', err);
-      setError('Failed to load users');
+      const msg = 'Failed to load users';
+      setError(msg);
+      showToast(msg, 'danger');
     }
   };
 
   const handleBanToggle = async (user, ban) => {
     try {
       await axios.post(`/admin/users/${user.id}/ban`, { ban });
-      fetchUsers(usersMeta.page);
+      fetchUsers(usersMeta.page || 1);
+      showToast(`User ${ban ? 'banned' : 'unbanned'}`, 'success');
     } catch (err) {
       console.error(err);
-      setError('Failed to update user status');
+      const msg = 'Failed to update user status';
+      setError(msg);
+      showToast(msg, 'danger');
     }
   };
 
-  const handleSoftDelete = async (user) => {
+  /* soft delete uses confirm modal */
+  const promptSoftDelete = (user) => {
+    setConfirmState({
+      show: true,
+      title: 'Delete user',
+      message: `Are you sure you want to delete user "${user.username}"? This action can be undone via restore.`,
+      onConfirm: () => handleSoftDeleteConfirmed(user),
+      confirmText: 'Delete',
+      variant: 'danger'
+    });
+  };
+
+  const handleSoftDeleteConfirmed = async (user) => {
     try {
       await axios.delete(`/admin/users/${user.id}`);
-      fetchUsers(usersMeta.page);
+      fetchUsers(usersMeta.page || 1);
+      showToast('User deleted', 'success');
     } catch (err) {
       console.error(err);
-      setError('Failed to delete user');
+      const msg = 'Failed to delete user';
+      setError(msg);
+      showToast(msg, 'danger');
     }
   };
 
   const handleRestore = async (user) => {
     try {
       await axios.post(`/admin/users/${user.id}/restore`);
-      fetchUsers(usersMeta.page);
+      fetchUsers(usersMeta.page || 1);
+      showToast('User restored', 'success');
     } catch (err) {
       console.error(err);
-      setError('Failed to restore user');
+      const msg = 'Failed to restore user';
+      setError(msg);
+      showToast(msg, 'danger');
     }
   };
 
@@ -156,17 +228,20 @@ export default function AdminDashboard() {
     if (action === 'edit') {
       setSelectedUser(user);
       setUserForm({
-        displayName: user.username,
-        email: user.email,
-        role: user.role,
+        displayName: user.username || '',
+        email: user.email || '',
+        role: user.role || 'fan',
         banned: !!user.banned
       });
       setShowUserModal(true);
+    } else if (action === 'delete') {
+      promptSoftDelete(user);
     }
   };
 
   const handleUserSubmit = async (e) => {
     e.preventDefault();
+    if (!selectedUser) return;
     try {
       await axios.put(`/admin/users/${selectedUser.id}`, {
         displayName: userForm.displayName,
@@ -178,12 +253,15 @@ export default function AdminDashboard() {
         await handleBanToggle(selectedUser, userForm.banned);
       }
 
-      fetchUsers(usersMeta.page);
+      fetchUsers(usersMeta.page || 1);
       setShowUserModal(false);
       setSelectedUser(null);
+      showToast('User updated', 'success');
     } catch (err) {
       console.error(err);
-      setError('Failed updating user');
+      const msg = 'Failed updating user';
+      setError(msg);
+      showToast(msg, 'danger');
     }
   };
 
@@ -194,9 +272,12 @@ export default function AdminDashboard() {
     try {
       await axios.delete(`/admin/ratings/${id}`);
       setRatings(prev => prev.filter(r => r.id !== id));
+      showToast('Rating deleted', 'success');
     } catch (err) {
       console.error(err);
-      setError('Failed to delete rating');
+      const msg = 'Failed to delete rating';
+      setError(msg);
+      showToast(msg, 'danger');
     }
   };
 
@@ -209,22 +290,49 @@ export default function AdminDashboard() {
       // reload settings
       const res = await axios.get('/admin/settings');
       if (res?.data?.settings) setSettings(res.data.settings);
+      showToast('Settings saved', 'success');
     } catch (err) {
       console.error(err);
-      setError('Failed to update settings');
+      const msg = 'Failed to update settings';
+      setError(msg);
+      showToast(msg, 'danger');
     }
   };
 
   /* ---------------- RENDER ---------------- */
-  if (loading) return <div className="text-center py-5">Loading dashboard...</div>;
+  if (loading) {
+    return (
+      <div className="d-flex justify-content-center align-items-center py-5">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
 
   return (
     <div>
       <h2 className="mb-4">Admin Dashboard</h2>
 
+      <ToastMessage
+        show={globalToast.show}
+        onClose={() => setGlobalToast(prev => ({ ...prev, show: false }))}
+        message={globalToast.message}
+        variant={globalToast.variant}
+        delay={globalToast.delay}
+        title={globalToast.title}
+        position="top-end"
+      />
+
       {error && <Alert variant="danger" dismissible onClose={() => setError(null)}>{error}</Alert>}
 
-      <Tabs defaultActiveKey="analytics">
+      <Tabs
+        activeKey={activeTab}
+        onSelect={(k) => {
+          if (!k) return;
+          setActiveTab(k);
+          try { localStorage.setItem(STORAGE_KEY, k); } catch (e) { /* ignore */ }
+        }}
+        className="mb-3"
+      >
         <Tab eventKey="analytics" title="Analytics">
           <AnalyticsPanel analytics={analytics} />
         </Tab>
@@ -234,8 +342,9 @@ export default function AdminDashboard() {
             users={users}
             onEdit={(u) => handleUserAction(u, 'edit')}
             onToggleBan={(u, ban) => handleBanToggle(u, ban)}
-            onSoftDelete={(u) => handleSoftDelete(u)}
+            onSoftDelete={(u) => handleSoftDeleteConfirmed(u)} // direct delete action (confirm handled via prompt)
             onRestore={(u) => handleRestore(u)}
+            onAction={(u, action) => handleUserAction(u, action)}
             pagination={{
               page: usersMeta.page,
               pages: usersMeta.pages,
@@ -311,7 +420,10 @@ export default function AdminDashboard() {
           </Modal.Body>
           <Modal.Footer>
             <Button variant="secondary" onClick={() => setShowUserModal(false)}>Cancel</Button>
-            <Button type="submit">Save</Button>
+            <Button type="submit">
+              <span className="me-2">{/* inline spinner for UX */}</span>
+              Save
+            </Button>
           </Modal.Footer>
         </Form>
       </Modal>
@@ -336,6 +448,27 @@ export default function AdminDashboard() {
           </Modal.Footer>
         </Form>
       </Modal>
+
+      {/* Generic Confirm Modal (reused) */}
+      <ConfirmModal
+        show={confirmState.show}
+        onHide={() => setConfirmState(prev => ({ ...prev, show: false }))}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmText={confirmState.confirmText}
+        variant={confirmState.variant}
+        onConfirm={() => {
+          // call provided callback (if any) and close is handled inside ConfirmModal via onHide chain
+          try {
+            confirmState.onConfirm && confirmState.onConfirm();
+          } catch (err) {
+            console.error('confirm action failed', err);
+            showToast('Action failed', 'danger');
+          } finally {
+            setConfirmState(prev => ({ ...prev, show: false }));
+          }
+        }}
+      />
     </div>
   );
 }
