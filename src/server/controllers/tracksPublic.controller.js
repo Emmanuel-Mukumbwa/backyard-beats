@@ -1,4 +1,3 @@
-// src/server/controllers/tracksPublic.controller.js
 const pool = require('../db').pool;
 const path = require('path');
 
@@ -205,3 +204,195 @@ exports.getMostPlayed = async (req, res, next) => {
 
 // Backwards-compatible alias: /public/tracks/recent should behave like new-releases
 exports.getRecentTracks = exports.getNewReleases;
+
+
+/**
+ * GET /public/tracks
+ * Combined, filterable, paginated endpoint for general music listing.
+ *
+ * Query params:
+ *  - page (default 1)
+ *  - limit (default 12, max 100)
+ *  - sort = 'new' | 'most_played'   (default 'new')
+ *  - q = search string (searches track title OR artist display_name)
+ *  - genre = genre name
+ *  - mood = mood name (filters by artist mood)
+ *  - artist_id = integer
+ *  - district = integer (filters by artist's user.district_id)
+ *
+ * Response: { items, total, page, limit, sort }
+ */
+exports.getTracks = async (req, res, next) => {
+  try {
+    const limit = Math.min(100, Number(req.query.limit) || 12);
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const sort = (req.query.sort || 'new').toLowerCase();
+
+    // Build where clauses and params
+    const whereClauses = [];
+    const params = [];
+
+    // Base visibility constraints (only approved tracks from approved artists and active users)
+    whereClauses.push(`t.is_approved = 1`);
+    whereClauses.push(`a.is_approved = 1`);
+    whereClauses.push(`a.is_rejected = 0`);
+    whereClauses.push(`u.deleted_at IS NULL`);
+    whereClauses.push(`u.banned = 0`);
+
+    // Filters
+    if (req.query.q) {
+      whereClauses.push(`(t.title LIKE ? OR a.display_name LIKE ?)`);
+      const qLike = `%${req.query.q}%`;
+      params.push(qLike, qLike);
+    }
+
+    if (req.query.artist_id) {
+      const aid = Number(req.query.artist_id);
+      if (!Number.isInteger(aid)) return res.status(400).json({ error: 'Invalid artist_id' });
+      whereClauses.push(`t.artist_id = ?`);
+      params.push(aid);
+    }
+
+    if (req.query.district) {
+      const did = Number(req.query.district);
+      if (!Number.isInteger(did)) return res.status(400).json({ error: 'Invalid district' });
+      whereClauses.push(`u.district_id = ?`);
+      params.push(did);
+    }
+
+    // For genre: prefer to filter by artist_genres/genres existence if genre provided
+    if (req.query.genre) {
+      whereClauses.push(`EXISTS (
+        SELECT 1 FROM artist_genres ag2
+        JOIN genres g2 ON ag2.genre_id = g2.id
+        WHERE ag2.artist_id = a.id AND g2.name = ?
+      )`);
+      params.push(req.query.genre);
+    }
+
+    // For mood: filter artists having that mood
+    if (req.query.mood) {
+      whereClauses.push(`EXISTS (
+        SELECT 1 FROM artist_moods am2
+        JOIN moods m2 ON am2.mood_id = m2.id
+        WHERE am2.artist_id = a.id AND m2.name = ?
+      )`);
+      params.push(req.query.mood);
+    }
+
+    const baseWhere = whereClauses.length ? ('WHERE ' + whereClauses.join(' AND ')) : '';
+
+    // If sort === 'most_played', use plays aggregation and ORDER BY plays
+    if (sort === 'most_played') {
+      const countSql = `
+        SELECT COUNT(DISTINCT t.id) AS total
+        FROM tracks t
+        LEFT JOIN artists a ON t.artist_id = a.id
+        LEFT JOIN users u ON a.user_id = u.id
+        ${baseWhere}
+      `;
+
+      const itemsSql = `
+        SELECT
+          t.id,
+          t.title,
+          t.preview_url,
+          t.preview_artwork,
+          t.duration,
+          t.genre,
+          t.release_date,
+          t.created_at,
+          a.id AS artist_id,
+          a.display_name AS artist_name,
+          COUNT(l.id) AS plays
+        FROM tracks t
+        LEFT JOIN artists a ON t.artist_id = a.id
+        LEFT JOIN users u ON a.user_id = u.id
+        LEFT JOIN listens l ON l.track_id = t.id
+        ${baseWhere}
+        GROUP BY t.id
+        ORDER BY plays DESC, COALESCE(t.release_date, t.created_at) DESC
+        LIMIT ? OFFSET ?
+      `;
+
+      const { total, rows } = await runPaginated(countSql, itemsSql, params, page, limit);
+
+      const items = (rows || []).map(r => {
+        const rawPreview = buildPublicUrl(r.preview_url, 'trackFile');
+        const rawArtwork = buildPublicUrl(r.preview_artwork, 'trackArtwork');
+        return {
+          id: r.id,
+          title: r.title,
+          preview_url: makeAbsoluteUrl(rawPreview, req),
+          download_url: makeAbsoluteUrl(rawPreview, req),
+          artwork_url: makeAbsoluteUrl(rawArtwork, req),
+          duration: r.duration,
+          genre: r.genre,
+          release_date: r.release_date ? (new Date(r.release_date).toISOString().slice(0,10)) : null,
+          created_at: r.created_at ? new Date(r.created_at).toISOString() : null,
+          plays: Number(r.plays || 0),
+          artist: {
+            id: r.artist_id,
+            display_name: r.artist_name
+          }
+        };
+      });
+
+      return res.json({ items, total, page, limit, sort });
+    }
+
+    // Default: new releases / latest ordering
+    const countSql = `
+      SELECT COUNT(DISTINCT t.id) AS total
+      FROM tracks t
+      LEFT JOIN artists a ON t.artist_id = a.id
+      LEFT JOIN users u ON a.user_id = u.id
+      ${baseWhere}
+    `;
+
+    const itemsSql = `
+      SELECT
+        t.id,
+        t.title,
+        t.preview_url,
+        t.preview_artwork,
+        t.duration,
+        t.genre,
+        t.release_date,
+        t.created_at,
+        a.id AS artist_id,
+        a.display_name AS artist_name
+      FROM tracks t
+      LEFT JOIN artists a ON t.artist_id = a.id
+      LEFT JOIN users u ON a.user_id = u.id
+      ${baseWhere}
+      ORDER BY COALESCE(t.release_date, t.created_at) DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    const { total, rows } = await runPaginated(countSql, itemsSql, params, page, limit);
+
+    const items = (rows || []).map(r => {
+      const rawPreview = buildPublicUrl(r.preview_url, 'trackFile');
+      const rawArtwork = buildPublicUrl(r.preview_artwork, 'trackArtwork');
+      return {
+        id: r.id,
+        title: r.title,
+        preview_url: makeAbsoluteUrl(rawPreview, req),
+        artwork_url: makeAbsoluteUrl(rawArtwork, req),
+        duration: r.duration,
+        genre: r.genre,
+        release_date: r.release_date ? (new Date(r.release_date).toISOString().slice(0,10)) : null,
+        created_at: r.created_at ? new Date(r.created_at).toISOString() : null,
+        artist: {
+          id: r.artist_id,
+          display_name: r.artist_name
+        }
+      };
+    });
+
+    return res.json({ items, total, page, limit, sort: 'new' });
+  } catch (err) {
+    next(err);
+  }
+};
