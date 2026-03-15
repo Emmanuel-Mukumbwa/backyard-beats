@@ -10,7 +10,7 @@ import ArtistSidebar from '../components/artist/ArtistSidebar';
 import { AuthContext } from '../context/AuthContext';
 import { Row, Col, Card, Alert } from 'react-bootstrap';
 
-import ToastMessage from '../components/ToastMessage';
+import ToastMessage from '../components/ToastMessage'; 
 import LoadingSpinner from '../components/LoadingSpinner';
 
 /* Helper utilities (kept inside the file for clarity) */
