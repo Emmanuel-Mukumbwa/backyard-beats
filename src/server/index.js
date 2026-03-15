@@ -1,4 +1,3 @@
-// src/server/index.js
 /**
  * Main server bootstrap
  * - Serves uploaded files at /uploads
@@ -9,17 +8,25 @@
 const express = require('express');
 const app = express();
 const db = require('./db'); // sequelize instance + pool
-const cors = require('cors'); 
+const cors = require('cors');
 const path = require('path');
 
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:3000';
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const profileRoutes = require('./routes/profile.routes');
 
+// CORS: expose Content-Disposition and custom X-Track-* headers so browser JS (axios) can read them
 app.use(cors({
-  origin: FRONTEND_ORIGIN, 
-  credentials: true
+  origin: FRONTEND_ORIGIN,
+  credentials: true,
+  exposedHeaders: ['Content-Disposition', 'X-Track-Title', 'X-Track-Artist', 'X-Track-Genre', 'Content-Type']
 }));
+
+// (Optional) Ensure the Access-Control-Expose-Headers header is present for all responses as backup
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-Track-Title, X-Track-Artist, X-Track-Genre, Content-Type');
+  next();
+});
 
 // Parse JSON bodies and URL-encoded (forms)
 app.use(express.json());
@@ -40,13 +47,14 @@ app.use('/uploads', express.static(UPLOADS_DIR, {
 app.use('/artistOnboard', require('./routes/artistOnboard.routes'));
 app.use('/artists', require('./routes/artists.routes'));
 app.use('/tracks', require('./routes/tracks.routes'));
+app.use('/download', require('./routes/download.routes'));
 app.use('/events', require('./routes/events.routes'));
 app.use('/users', require('./routes/users.routes'));
 app.use('/', require('./routes/ratings.routes'));   // this contains /artist/:id
 app.use('/districts', require('./routes/districts.routes'));
 app.use('/auth', require('./routes/auth.routes'));
 app.use('/favorites', require('./routes/favorites.routes'));
-app.use('/profile', profileRoutes); 
+app.use('/profile', profileRoutes);
 app.use('/fan', require('./routes/fan.routes'));
 app.use('/public', require('./routes/public.routes'));
 app.use('/fan/playlists', require('./routes/fan.playlists.routes'));
