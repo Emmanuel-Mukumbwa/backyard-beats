@@ -11,7 +11,7 @@ router.get('/', controller.getUserPlaylists);
 
 // POST /fan/playlists
 router.post('/', controller.createPlaylist);
-
+ 
 // GET /fan/playlists/:id
 router.get('/:id', controller.getPlaylist);
 
