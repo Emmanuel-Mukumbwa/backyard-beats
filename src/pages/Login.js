@@ -1,4 +1,4 @@
-// File: src/pages/Login.jsx
+// src/pages/Login.jsx
 import React, { useState, useContext, useEffect } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { Form, Button, Card, InputGroup, Spinner } from 'react-bootstrap';
@@ -10,7 +10,6 @@ export default function Login() {
   const [identifier, setIdentifier] = useState(''); // accepts email or username
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -38,7 +37,7 @@ export default function Login() {
     if (pre && pre.includes('@')) setIdentifier(pre);
   }, [location.search]);
 
-  // Clear field-level errors as user types (functional updater prevents missing-deps ESLint)
+  // Clear field-level errors as user types
   useEffect(() => {
     if (identifierTrim.length > 0) {
       setFieldErrors(prev => (prev.identifier ? { ...prev, identifier: false } : prev));
@@ -51,31 +50,18 @@ export default function Login() {
     }
   }, [password, setFieldErrors]);
 
+  // Persist to localStorage (always)
   const persistAuth = ({ token, user }) => {
     try {
       const payload = { token, user };
-      if (rememberMe) {
-        localStorage.setItem('bb_token', token);
-        localStorage.setItem('bb_user', JSON.stringify(user));
-        localStorage.setItem('bb_auth', JSON.stringify(payload));
-      } else {
-        sessionStorage.setItem('bb_token', token);
-        sessionStorage.setItem('bb_user', JSON.stringify(user));
-        sessionStorage.setItem('bb_auth', JSON.stringify(payload));
-      }
+      localStorage.setItem('bb_token', token);
+      localStorage.setItem('bb_user', JSON.stringify(user));
+      localStorage.setItem('bb_auth', JSON.stringify(payload));
     } catch (e) {
-      // non-fatal
       console.error('Error persisting auth to storage', e);
     }
   };
 
-  /**
-   * handleSubmit
-   * - Uses fetch() to avoid axios interceptors that might redirect on 401.
-   * - Persists token before calling AuthContext.login so other parts reading localStorage see token immediately.
-   * - Awaits AuthContext.login if it returns a promise to avoid races with RequireAuth/axios checks.
-   * - Shows a short UX delay so the success toast and spinner are perceived before navigation.
-   */
   const handleSubmit = async (e) => {
     e?.preventDefault();
     e?.stopPropagation();
@@ -98,11 +84,9 @@ export default function Login() {
     try {
       const body = { identifier: identifierTrim, password };
 
-      // Build URL using axios's configured baseURL if present, otherwise relative path
       const base = axios?.defaults?.baseURL || '';
       const url = `${base.replace(/\/$/, '')}/auth/login`;
 
-      // Use fetch() to avoid axios interceptors redirecting mid-flow
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -137,7 +121,6 @@ export default function Login() {
         return;
       }
 
-      // Server account flags
       if (user.deleted_at) {
         setError('This account has been deleted. Contact support if you believe this is an error.');
         setLoading(false);
@@ -149,25 +132,20 @@ export default function Login() {
         return;
       }
 
-      // Persist to storage first
       persistAuth({ token, user });
 
-      // Call AuthContext.login (may set app-level state). Await it if it returns a Promise.
       try {
         const maybePromise = login ? login({ ...user, token }) : null;
         if (maybePromise && typeof maybePromise.then === 'function') {
           await maybePromise;
         }
       } catch (ctxErr) {
-        // Non-fatal; we persisted token so protected checks that look at localStorage will see it
         console.warn('AuthContext.login threw (non-fatal):', ctxErr);
       }
 
-      // Show success toast and keep spinner visible briefly for a professional UX
       setSuccess('Login successful — redirecting...');
       const NAV_DELAY_MS = 600;
 
-      // Determine safe redirectTo (only allow internal paths that start with '/')
       const rawRedirect = new URLSearchParams(location.search).get('redirectTo');
       const safeRedirect = (rawRedirect && rawRedirect.startsWith('/')) ? rawRedirect : null;
 
@@ -177,7 +155,6 @@ export default function Login() {
           return;
         }
 
-        // Role-based redirects
         if (user.role === 'artist') {
           const hasProfile = !!user.has_profile;
           navigate(hasProfile ? '/artist/dashboard' : '/onboard', { replace: true });
@@ -211,7 +188,7 @@ export default function Login() {
                 type="text"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
-                placeholder="you@example.com or username"
+                placeholder="eg. yourname@gmail.com "
                 required
                 isInvalid={(identifier.length > 0 && !identifierValid) || fieldErrors.identifier}
                 autoComplete="username"
@@ -248,12 +225,7 @@ export default function Login() {
             </Form.Group>
 
             <div className="d-flex justify-content-between align-items-center mb-3">
-              <Form.Check
-                id="rememberMe"
-                label="Remember me"
-                checked={rememberMe}
-                onChange={() => setRememberMe((s) => !s)}
-              />
+              <div /> {/* placeholder to keep spacing */}
               <Link to="/forgot-password" className="small">Forgot password?</Link>
             </div>
 
@@ -274,8 +246,8 @@ export default function Login() {
           </div>
 
           <div className="mt-2 text-muted small">
-          Need help? Contact <Link to="/support">support</Link>.
-          </div> 
+            Need help? Contact <Link to="/support">support</Link>.
+          </div>
         </Card.Body>
       </Card>
     </>
