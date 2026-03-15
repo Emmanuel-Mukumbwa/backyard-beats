@@ -1,13 +1,6 @@
 // File: server/controllers/artistOnboard.controller.js
 const pool = require('../db').pool;
-const path = require('path');
-
-const UPLOADS_PREFIX = process.env.UPLOADS_PREFIX || '/uploads';
-
-function buildPhotoUrl(filename) {
-  if (!filename) return null;
-  return path.posix.join(UPLOADS_PREFIX, 'artists', 'photos', filename);
-}
+// No longer need path or UPLOADS_PREFIX
 
 /**
  * Helper: validate that given ids exist in table.
@@ -55,7 +48,7 @@ exports.onboard = async (req, res, next) => {
       }
     }
 
-    // Handle uploaded photo
+    // Handle uploaded photo (now uses Cloudinary, so file.path is the full HTTPS URL)
     let photoFile = null;
     if (req.file) {
       photoFile = req.file;
@@ -63,7 +56,7 @@ exports.onboard = async (req, res, next) => {
       photoFile = req.files.photo[0];
     }
 
-    const photo_url_from_upload = photoFile && photoFile.filename ? buildPhotoUrl(photoFile.filename) : null;
+    const photo_url_from_upload = photoFile ? photoFile.path : null;
 
     // get a connection for transaction
     conn = await pool.getConnection();
