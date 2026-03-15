@@ -1,8 +1,83 @@
 // src/components/MostPlayed.js
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useContext } from 'react';
 import axios from '../api/axiosConfig';
 import { ListGroup, Spinner, Image, Button } from 'react-bootstrap';
 import { FaDownload, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
+import { AuthContext } from '../context/AuthContext';
+
+/** sanitize file name for client (small helper) */
+function sanitizeFilename(s) {
+  if (!s) return '';
+  return String(s)
+    .replace(/["'<>:\\/|?*]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 190);
+}
+
+/** download helper (forces filename by creating File object) */
+async function downloadTrackById(trackId, setToast) {
+  try {
+    const res = await axios.get(`/download/${trackId}`, { responseType: 'blob' });
+    const disposition = (res.headers && (res.headers['content-disposition'] || res.headers['Content-Disposition'])) || '';
+    let filename = null;
+    if (disposition) {
+      const fnStar = disposition.match(/filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i);
+      if (fnStar && fnStar[1]) {
+        try { filename = decodeURIComponent(fnStar[1].replace(/['"]/g, '')); } catch (e) { filename = fnStar[1].replace(/['"]/g, ''); }
+      }
+      if (!filename) {
+        const quoted = disposition.match(/filename\s*=\s*"([^"]+)"/i);
+        if (quoted && quoted[1]) filename = quoted[1];
+      }
+      if (!filename) {
+        const unquoted = disposition.match(/filename\s*=\s*([^;]+)/i);
+        if (unquoted && unquoted[1]) filename = unquoted[1].replace(/['"]/g, '').trim();
+      }
+    }
+    if (!filename) {
+      const title = (res.headers && (res.headers['x-track-title'] || res.headers['X-Track-Title'])) || '';
+      const mime = (res.data && res.data.type) || '';
+      let ext = '.mp3';
+      if (mime.includes('mpeg')) ext = '.mp3';
+      else if (mime.includes('audio/mp4') || mime.includes('m4a')) ext = '.m4a';
+      else if (mime.includes('ogg')) ext = '.ogg';
+      else if (mime.includes('wav')) ext = '.wav';
+      else if (mime.includes('flac')) ext = '.flac';
+      filename = `${sanitizeFilename(title || `track-${trackId}`)}${ext}`;
+    }
+    filename = filename && sanitizeFilename(filename) ? filename : `track-${trackId}.mp3`;
+    const blob = res.data;
+    if ((blob.type || '').includes('application/json')) {
+      const txt = await blob.text();
+      throw new Error(txt);
+    }
+    let fileToSave;
+    try {
+      fileToSave = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+    } catch (e) {
+      fileToSave = blob;
+    }
+    if (window.navigator && window.navigator.msSaveOrOpenBlob) {
+      window.navigator.msSaveOrOpenBlob(fileToSave, filename);
+    } else {
+      const url = window.URL.createObjectURL(fileToSave);
+      const a = document.createElement('a');
+      a.href = url;
+      a.setAttribute('download', filename);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    }
+    if (typeof setToast === 'function') setToast({ show: true, message: `Download started: ${filename}`, variant: 'success' });
+  } catch (err) {
+    if (typeof setToast === 'function') {
+      const message = (err && err.message) ? err.message : 'Download failed';
+      setToast({ show: true, message: `Download failed: ${message}`, variant: 'danger' });
+    }
+  }
+}
 
 export default function MostPlayed({ limit = 6, onSelect = () => {} }) {
   const [items, setItems] = useState([]);
@@ -11,6 +86,7 @@ export default function MostPlayed({ limit = 6, onSelect = () => {} }) {
   const [total, setTotal] = useState(0);
   const playingRef = useRef(null);
   const mountedRef = useRef(true);
+  const { user, artist: myArtist } = useContext(AuthContext);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -39,6 +115,14 @@ export default function MostPlayed({ limit = 6, onSelect = () => {} }) {
     if (playingRef.current === audioEl) playingRef.current = null;
   }
 
+  async function recordListenIfNeeded(track) {
+    if (!user || !user.id) return;
+    if (myArtist && track.artist && Number(myArtist.id) === Number(track.artist.id)) return;
+    try {
+      await axios.post('/fan/listens', { track_id: track.id, artist_id: track.artist?.id || null });
+    } catch (e) { /* ignore */ }
+  }
+
   const totalPages = Math.max(1, Math.ceil((total || 0) / limit));
 
   if (loading) return <div className="py-2 text-center"><Spinner animation="border" size="sm" /></div>;
@@ -52,7 +136,6 @@ export default function MostPlayed({ limit = 6, onSelect = () => {} }) {
           const artistId = t.artist?.id || null;
           const artwork = t.artwork_url || t.preview_artwork || null;
           const preview = t.preview_url || t.previewUrl || null;
-          const download = t.download_url || preview || null;
           const plays = Number(t.plays || 0);
 
           return (
@@ -89,10 +172,11 @@ export default function MostPlayed({ limit = 6, onSelect = () => {} }) {
                     {preview ? (
                       <audio
                         controls
+                        controlsList="nodownload"
                         preload="none"
                         style={{ width: 120, height: 30 }}
                         src={preview}
-                        onPlay={e => handlePlay(e.target)}
+                        onPlay={e => { handlePlay(e.target); recordListenIfNeeded(t); }}
                         onPause={e => handlePause(e.target)}
                         onEnded={() => { if (playingRef.current) playingRef.current = null; }}
                         aria-label={`Preview for ${t.title}`}
@@ -101,11 +185,11 @@ export default function MostPlayed({ limit = 6, onSelect = () => {} }) {
                       <div className="small text-muted me-2">No preview</div>
                     )}
 
-                    {download ? (
+                    {preview ? (
                       <Button
                         size="sm"
                         variant="link"
-                        href={download}
+                        onClick={() => downloadTrackById(t.id)}
                         download
                         title="Download track"
                         className="ms-3 p-0"
