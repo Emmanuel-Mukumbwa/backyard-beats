@@ -3,9 +3,6 @@ const router = express.Router();
 const tracksPublic = require('../controllers/tracksPublic.controller');
 const admin = require('../controllers/admin');
 
-// Debug: show exported members in console once at startup
-console.log('public.routes -> tracksPublic exports:', Object.keys(tracksPublic || {}));
-
 // Helper to attach route with validation
 function attachGet(path, handler, name) {
   if (typeof handler !== 'function') {
@@ -13,7 +10,7 @@ function attachGet(path, handler, name) {
     throw new TypeError(`Handler for GET ${path} (${name}) is not a function. Check exports in controllers/tracksPublic.controller.js`);
   }
   router.get(path, handler);
-} 
+}  
 
 // Attach routes (will throw clear error if handler missing)
 attachGet('/tracks/recent', tracksPublic.getRecentTracks, 'getRecentTracks');
