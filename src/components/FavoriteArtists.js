@@ -158,4 +158,4 @@ export default function FavoriteArtists({ max = 12, onFollowChange }) {
       })}
     </Row>
   );
-}
+} 
