@@ -1,3 +1,4 @@
+//src/components/AddTrackModal.js
 import React, { useEffect, useState, useRef } from 'react';
 import { Modal, Button, Form, Row, Col, Image } from 'react-bootstrap';
 import axios from '../api/axiosConfig';
@@ -10,7 +11,7 @@ export default function AddTrackModal({ show, onHide, onSaved, editing = null, g
   const [songTitle, setSongTitle] = useState('');
   const [producer, setProducer] = useState('');
   // legacy internal title kept for compatibility if needed
-  const [file, setFile] = useState(null);
+  const [file, setFile] = useState(null); 
   const [artwork, setArtwork] = useState(null);
   const [genre, setGenre] = useState('');
   const [duration, setDuration] = useState(''); // seconds as string
