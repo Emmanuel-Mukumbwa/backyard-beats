@@ -1,10 +1,12 @@
-import React, { useRef, useState, useEffect } from 'react';
+// src/components/artist/TracksPanel.js
+import React, { useRef, useState, useEffect, useContext } from 'react';
 import { Table, Button, Image, Badge } from 'react-bootstrap';
 import { FaMusic, FaEdit, FaTrash, FaDownload } from 'react-icons/fa';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import axios from '../../api/axiosConfig';
 import ConfirmModal from '../ConfirmModal';
+import { AuthContext } from '../../context/AuthContext';
 
 /**
  * TracksPanel - shows artist-owned tracks with approval status and reason if rejected.
@@ -23,6 +25,7 @@ export default function TracksPanel({
 }) {
   const navigate = useNavigate();
   const playingRef = useRef(null);
+  const { user, artist: myArtist } = useContext(AuthContext);
 
   // Confirm modal state for deletes
   const [confirm, setConfirm] = useState({
@@ -61,7 +64,6 @@ export default function TracksPanel({
         setTicketsMap(map);
       } catch (e) {
         // fail silently - ticketsMap can remain empty
-        // console.warn('Failed load tickets for TracksPanel', e);
       }
     }
     loadUserTickets();
@@ -82,8 +84,6 @@ export default function TracksPanel({
     try {
       await onDelete(id);
     } catch (e) {
-      // onDelete is expected to show errors; nothing else here
-      // eslint-disable-next-line no-console
       console.error('Delete failed', e);
     } finally {
       closeConfirm();
@@ -99,6 +99,16 @@ export default function TracksPanel({
     if (typeof onPlay === 'function') {
       try { onPlay(track); } catch (e) { /* don't block UI */ }
     }
+
+    // record listen (best-effort), but skip if current user is the artist owner
+    if (user && user.id && track && track.id) {
+      if (myArtist && track.artist && Number(myArtist.id) === Number(track.artist.id)) {
+        // skip owner plays
+      } else {
+        // fire-and-forget
+        axios.post('/fan/listens', { track_id: track.id, artist_id: track.artist?.id || null }).catch(() => {});
+      }
+    }
   }
 
   function handlePause(audioEl) {
@@ -113,90 +123,97 @@ export default function TracksPanel({
     return t.artwork_url || t.preview_artwork || t.artworkUrl || t.cover_url || t.cover || null;
   }
 
-  // Try to extract a usable token from common storage keys / formats
-  function getStoredToken() {
-    const keys = ['token', 'accessToken', 'authToken', 'auth', 'app_token'];
-    for (let k of keys) {
-      const v = localStorage.getItem(k);
-      if (!v) continue;
-      if (v.startsWith('eyJ') || v.split('.').length === 3) return v;
-      if (v.startsWith('Bearer ')) return v.substring(7);
-      try {
-        const parsed = JSON.parse(v);
-        if (parsed) {
-          if (parsed.token) return parsed.token;
-          if (parsed.accessToken) return parsed.accessToken;
-          if (parsed.authToken) return parsed.authToken;
-          const firstStr = Object.values(parsed).find(x => typeof x === 'string' && (x.startsWith('eyJ') || x.split?.('.').length === 3));
-          if (firstStr) return firstStr;
-        }
-      } catch (e) {
-        // not JSON, continue
-      }
-      return v;
-    }
-    return null;
+  function sanitizeFilename(s) {
+    if (!s) return '';
+    return String(s)
+      .replace(/["'<>:\\/|?*]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 190);
   }
 
   /**
-   * Download via axios so we reuse baseURL and interceptors (and send cookies if configured).
+   * Download helper: uses /download/:id endpoint and tries to force filename
    */
   async function downloadTrack(trackId) {
     try {
-      const token = getStoredToken();
-      const headers = {};
-      if (token) headers.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
-
-      const res = await axios.get(`/tracks/${trackId}/download`, {
-        responseType: 'blob',
-        headers
+      const res = await axios.get(`/download/${trackId}`, {
+        responseType: 'blob'
       });
 
-      const disposition = res.headers && (res.headers['content-disposition'] || res.headers['Content-Disposition']);
-      let filename = 'track.mp3';
+      const disposition = (res.headers && (res.headers['content-disposition'] || res.headers['Content-Disposition'])) || '';
+      let filename = null;
+
       if (disposition) {
-        const m = disposition.match(/filename="(.+)"/);
-        if (m && m[1]) filename = m[1];
+        // filename*= (RFC5987)
+        const fnStar = disposition.match(/filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i);
+        if (fnStar && fnStar[1]) {
+          try { filename = decodeURIComponent(fnStar[1].replace(/['"]/g, '')); } catch (e) { filename = fnStar[1].replace(/['"]/g, ''); }
+        }
+        if (!filename) {
+          const quoted = disposition.match(/filename\s*=\s*"([^"]+)"/i);
+          if (quoted && quoted[1]) filename = quoted[1];
+        }
+        if (!filename) {
+          const unq = disposition.match(/filename\s*=\s*([^;]+)/i);
+          if (unq && unq[1]) filename = unq[1].replace(/['"]/g, '').trim();
+        }
       }
 
+      if (!filename) {
+        const title = (res.headers && (res.headers['x-track-title'] || res.headers['X-Track-Title'])) || '';
+        const mime = (res.data && res.data.type) || '';
+        let ext = '.mp3';
+        if (mime.includes('mpeg')) ext = '.mp3';
+        else if (mime.includes('audio/mp4') || mime.includes('m4a')) ext = '.m4a';
+        else if (mime.includes('ogg')) ext = '.ogg';
+        else if (mime.includes('wav')) ext = '.wav';
+        else if (mime.includes('flac')) ext = '.flac';
+        filename = `${sanitizeFilename(title || `track-${trackId}`)}${ext}`;
+      }
+
+      filename = filename && sanitizeFilename(filename) ? filename : `track-${trackId}.mp3`;
+
       const blob = res.data;
-      const blobType = blob.type || '';
-      if (blobType.includes('application/json')) {
-        const text = await blob.text();
+      if ((blob.type || '').includes('application/json')) {
+        const txt = await blob.text();
         let parsed;
-        try { parsed = JSON.parse(text); } catch (e) { parsed = text; }
+        try { parsed = JSON.parse(txt); } catch (e) { parsed = txt; }
         alert(`Download failed: ${JSON.stringify(parsed)}`);
         return;
       }
 
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      // create File to encourage browsers to use the filename
+      let fileToSave;
+      try {
+        fileToSave = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+      } catch (e) {
+        fileToSave = blob;
+      }
+
+      if (window.navigator && window.navigator.msSaveOrOpenBlob) {
+        window.navigator.msSaveOrOpenBlob(fileToSave, filename);
+      } else {
+        const url = window.URL.createObjectURL(fileToSave);
+        const a = document.createElement('a');
+        a.href = url;
+        a.setAttribute('download', filename);
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      }
     } catch (err) {
-      let message = err.message;
+      let message = err.message || 'Download failed';
       try {
         if (err.response && err.response.data) {
           const data = err.response.data;
           if (data instanceof Blob) {
             const txt = await data.text();
-            try {
-              const parsed = JSON.parse(txt);
-              message = parsed.error || JSON.stringify(parsed);
-            } catch (e) {
-              message = txt;
-            }
-          } else if (typeof data === 'object') {
-            message = data.error || JSON.stringify(data);
-          } else {
-            message = String(data);
-          }
+            try { const parsed = JSON.parse(txt); message = parsed.error || JSON.stringify(parsed); } catch (_) { message = txt; }
+          } else if (typeof data === 'object') { message = data.error || JSON.stringify(data); } else { message = String(data); }
         }
-      } catch (e2) { /* ignore */ }
+      } catch (_) { /* ignore */ }
       alert(`Download failed: ${message}`);
     }
   }
@@ -232,7 +249,6 @@ export default function TracksPanel({
 
   function handleViewTicket(ticket) {
     if (!ticket) return;
-    // navigate using query param so SupportPage opens My Tickets tab and preserves on reload
     navigate(`/support?openTicket=${ticket.id}`);
   }
 
@@ -295,7 +311,6 @@ export default function TracksPanel({
                       <Button size="sm" variant="outline-primary" onClick={() => handleViewTicket(ticket)}>View ticket</Button>
                     )}
                     {track.is_rejected && !ticket && (
-                      // Contact support behaves like Appeal: open prefilled support form
                       <Button size="sm" variant="link" onClick={() => openAppealForTrack(track)}>Contact support</Button>
                     )}
                   </div>
@@ -306,8 +321,8 @@ export default function TracksPanel({
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <audio
                         controls
-                        preload="none"
                         controlsList="nodownload"
+                        preload="none"
                         style={{ width: 320, maxWidth: '100%' }}
                         src={previewUrl}
                         onPlay={(e) => handlePlay(e.target, track)}
