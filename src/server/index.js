@@ -1,18 +1,17 @@
 /**
  * Main server bootstrap
- * - Serves uploaded files at /uploads
- * - Mounts API routes including artist onboarding
+ * - Mounts API routes
  * - Connects to the database via server/db.js
  */
+
+require('dotenv').config({ path: __dirname + '/.env' });
 
 const express = require('express');
 const app = express();
 const db = require('./db'); // sequelize instance + pool
 const cors = require('cors');
-const path = require('path');
 
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:3000';
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const profileRoutes = require('./routes/profile.routes');
 
 // CORS: expose Content-Disposition and custom X-Track-* headers so browser JS (axios) can read them
@@ -38,12 +37,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Serve uploaded files (artist photos, track files, etc.) at /uploads/*
-app.use('/uploads', express.static(UPLOADS_DIR, {
-  index: false,
-  maxAge: '7d'
-}));
-
+// API routes
 app.use('/artistOnboard', require('./routes/artistOnboard.routes'));
 app.use('/artists', require('./routes/artists.routes'));
 app.use('/tracks', require('./routes/tracks.routes'));
@@ -66,6 +60,7 @@ app.use('/mineevents', require('./routes/events.mine.routes'));
 
 // Basic health check
 app.get('/health', (req, res) => {
+  console.log('💓 Health check pinged at', new Date().toISOString());
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
@@ -92,11 +87,11 @@ const startServer = async () => {
 
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
-      console.log(`Serving uploads from ${UPLOADS_DIR} at /uploads`);
+      console.log(`🚀 Files are served via Cloudinary (no local /uploads)`);
     });
   } catch (err) {
     console.error('Database connection failed:', err);
-    process.exit(1);
+    process.exit(1); 
   }
 };
 
