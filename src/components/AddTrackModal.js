@@ -258,7 +258,7 @@ export default function AddTrackModal({ show, onHide, onSaved, editing = null, g
         const res = await axios.put(`/tracks/${editing.id}`, fd, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
-        setToast({ show: true, message: 'Track updated', variant: 'success' });
+        setToast({ show: true, message: 'Track updated', variant: 'success' }); 
         onSaved(res.data);
       } else {
         const res = await axios.post('/tracks', fd, {
