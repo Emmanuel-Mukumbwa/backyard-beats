@@ -1,11 +1,11 @@
-// src/pages/BrowseMusic.jsx
 import React, { useEffect, useState, useRef, useCallback, useContext } from 'react';
 import axios from '../api/axiosConfig';
 import FilterBar from '../components/FilterBar';
 import { Container, Row, Col, Button, Spinner, ListGroup, Image, Form, Collapse } from 'react-bootstrap';
-import { FaDownload, FaChevronLeft, FaMusic, FaFilter } from 'react-icons/fa';
+import { FaChevronLeft, FaMusic, FaFilter } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
+import ToastMessage from '../components/ToastMessage'; // added for toast notifications
 
 /** sanitize file name for client (small helper) */
 function sanitizeFilename(s) {
@@ -20,7 +20,6 @@ function sanitizeFilename(s) {
 /** download helper (forces filename by creating File object) */
 async function downloadTrackById(trackId, setToast) {
   try {
-    // use axios instance for auth header
     const res = await axios.get(`/download/${trackId}`, { responseType: 'blob' });
 
     const disposition = (res.headers && (res.headers['content-disposition'] || res.headers['Content-Disposition'])) || '';
@@ -101,6 +100,8 @@ export default function BrowseMusic() {
   const debounceRef = useRef(null);
 
   const [showFilters, setShowFilters] = useState(false);
+  const [downloadingId, setDownloadingId] = useState(null); // track which track is being downloaded
+  const [toast, setToast] = useState({ show: false, message: '', variant: 'info' }); // local toast state
 
   const navigate = useNavigate();
   const { user, artist: myArtist } = useContext(AuthContext);
@@ -172,23 +173,40 @@ export default function BrowseMusic() {
   }
 
   async function recordListenIfNeeded(track) {
-    // only logged-in users record listens
     if (!user || !user.id) return;
-    // if we have the current user's artist profile and it's the same as this track's artist, skip
     if (myArtist && track.artist && Number(myArtist.id) === Number(track.artist.id)) return;
     try {
       await axios.post('/fan/listens', { track_id: track.id, artist_id: track.artist?.id || null });
-      // we purposely ignore the response (server will dedupe or ignore owner plays)
     } catch (e) {
-      // ignore network errors silently
+      // ignore
     }
   }
+
+  // Handle download with toast and disable button while downloading
+  const handleDownload = (trackId) => {
+    setDownloadingId(trackId);
+    setToast({ show: true, message: 'Preparing your download...', variant: 'info' });
+    downloadTrackById(trackId, (toastObj) => {
+      setToast(toastObj);
+      // clear downloading state on success or failure
+      setDownloadingId(null);
+    });
+  };
 
   const totalPages = Math.max(1, Math.ceil((total || 0) / limit));
   const activeFiltersCount = Object.values(filters).filter(v => v && String(v).trim().length > 0).length;
 
   return (
     <Container fluid className="mt-4 px-lg-5">
+      <ToastMessage
+        show={toast.show}
+        onClose={() => setToast(s => ({ ...s, show: false }))}
+        message={toast.message}
+        variant={toast.variant}
+        delay={3500}
+        position="top-end"
+      />
+
       <Row>
         <Col xs={12}>
           <h2 className="mb-3"><FaMusic className="me-2" />Browse Music</h2>
@@ -263,7 +281,7 @@ export default function BrowseMusic() {
                 const artistName = t.artist?.display_name || t.artist?.displayName || '';
                 const artwork = t.artwork_url || null;
                 const preview = t.preview_url || null;
-                const downloadUrl = `/download/${t.id}`; // use our download endpoint with client helper
+                const isDownloading = downloadingId === t.id;
                 return (
                   <ListGroup.Item key={t.id} className="py-3">
                     <div className="d-flex align-items-start">
@@ -293,7 +311,7 @@ export default function BrowseMusic() {
                           </div>
                         </div>
 
-                        {/* compact controls under title (preview + download) */}
+                        {/* Compact controls under title */}
                         <div className="d-flex align-items-center gap-3 mt-2">
                           {preview ? (
                             <audio
@@ -309,18 +327,19 @@ export default function BrowseMusic() {
                           ) : (
                             <div className="small text-muted">No preview</div>
                           )}
+                        </div>
 
-                          {downloadUrl ? (
-                            <Button
-                              variant="link"
-                              size="sm"
-                              onClick={() => downloadTrackById(t.id, null)}
-                              title={`Download ${t.title}`}
-                              className="p-0"
-                            >
-                              <FaDownload />
-                            </Button>
-                          ) : null}
+                        {/* Download button placed below preview, as text */}
+                        <div className="mt-2">
+                          <Button
+                            variant="link"
+                            size="sm"
+                            onClick={() => handleDownload(t.id)}
+                            disabled={isDownloading}
+                            className="p-0 text-success"
+                          >
+                            {isDownloading ? 'Preparing...' : 'Download'}
+                          </Button>
                         </div>
                       </div>
                     </div>
@@ -342,6 +361,6 @@ export default function BrowseMusic() {
           </div>
         </Col>
       </Row>
-    </Container> 
+    </Container>
   );
 }
