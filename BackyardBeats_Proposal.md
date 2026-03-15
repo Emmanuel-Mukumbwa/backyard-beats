@@ -7,7 +7,7 @@ Backyard Beats is an innovative music discovery platform designed specifically f
 The project leverages modern web technologies including React for the frontend, Node.js and Express for the backend, and MySQL for data persistence. Key features include artist onboarding, interactive district-based mapping, event management, user ratings and reviews, audio streaming, and administrative dashboards.
 
 This proposal outlines the project's vision, technical implementation, market positioning, and strategic roadmap for successful deployment and user adoption.
-
+ 
 ## Table of Contents
 
 1. Executive Summary
