@@ -13,12 +13,15 @@ const fields = uploadFields([{ name: 'file', maxCount: 1 }, { name: 'artwork', m
 
 router.get('/', controller.listTracks); // returns tracks for the logged-in artist
 
-// Debug middleware to log incoming fields before Multer processes them
-router.post('/', (req, res, next) => {
-  console.log('Fields received (body keys):', Object.keys(req.body));
-  console.log('Files received (pre-Multer):', req.files);
+// Debug middleware placed AFTER Multer has processed the files
+router.post('/', fields, (req, res, next) => {
+  console.log('Fields received (after multer):', Object.keys(req.body));
+  console.log('Files received (after multer):', req.files ? Object.keys(req.files) : 'No files');
+  // Optional: log full body and files structure for deep debugging
+  // console.log('req.body:', req.body);
+  // console.log('req.files:', req.files);
   next();
-}, fields, controller.createTrack);
+}, controller.createTrack);
 
 router.put('/:id', fields, controller.updateTrack);
 router.delete('/:id', controller.deleteTrack);
