@@ -1,5 +1,5 @@
 // src/hooks/useTracks.js
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import axios from '../api/axiosConfig';
 
 export default function useTracks(path = '/public/tracks/recent', opts = {}) {
@@ -12,26 +12,48 @@ export default function useTracks(path = '/public/tracks/recent', opts = {}) {
 
   const reload = useCallback(() => setNonce(n => n + 1), []);
 
-  // stringify params safely for dependency tracking
-  const paramsKey = useMemo(() => JSON.stringify(params || {}), [params]);
+  // stable string key representing params content (only changes when params content changes)
+  const paramsKey = JSON.stringify(params || {});
+
+  // helper to resolve relative uploads to absolute using configured axios baseURL
+  function resolveToBackend(raw) {
+    if (!raw) return '';
+    if (/^https?:\/\//i.test(raw)) return raw;
+    const base = (axios && axios.defaults && axios.defaults.baseURL) || process.env.REACT_APP_API_URL || window.location.origin;
+    const rel = raw.startsWith('/') ? raw : `/${raw}`;
+    return `${base.replace(/\/$/, '')}${rel}`;
+  }
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
 
     setLoading(true);
     setError(null);
 
-    axios.get(path, { params: { limit, ...(params || {}) } })
+    // parse paramsKey inside the effect so the effect only depends on paramsKey (a string)
+    let parsedParams = {};
+    try {
+      parsedParams = paramsKey ? JSON.parse(paramsKey) : {};
+    } catch (e) {
+      // parsing failed (corrupted or not JSON) — fallback to empty object
+      parsedParams = {};
+    }
+
+    axios.get(path, { params: { limit, ...(parsedParams || {}) }, signal: controller.signal })
       .then(res => {
         if (cancelled) return;
 
-        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        const items = Array.isArray(res.data?.items)
+          ? res.data.items
+          : (Array.isArray(res.data) ? res.data : []);
 
         const mapped = items.map(t => ({
           id: t.id,
           title: t.title,
           preview_url: t.preview_url || t.previewUrl || null,
-          artwork_url: t.artwork_url || t.artworkUrl || null,
+          // resolve artwork/preview to absolute to avoid dev-proxy relative path issues
+          artwork_url: (t.artwork_url || t.artworkUrl) ? resolveToBackend(t.artwork_url || t.artworkUrl) : null,
           duration: t.duration ?? null,
           genre: t.genre || null,
           artist: t.artist
@@ -40,14 +62,16 @@ export default function useTracks(path = '/public/tracks/recent', opts = {}) {
                 : { id: t.artist_id || null, display_name: t.artist_name || null })
             : null,
           release_date: t.release_date || null,
-          created_at: t.created_at || null
+          created_at: t.created_at || null,
+          download_url: t.download_url ? resolveToBackend(t.download_url) : null
         }));
 
         setTracks(mapped);
       })
       .catch(err => {
         if (cancelled) return;
-
+        // if aborted, quietly ignore
+        if (err?.name === 'CanceledError' || err?.message === 'canceled') return;
         setTracks([]);
         setError(
           err?.message ||
@@ -61,8 +85,9 @@ export default function useTracks(path = '/public/tracks/recent', opts = {}) {
 
     return () => {
       cancelled = true;
+      try { controller.abort(); } catch (e) { /* ignore */ }
     };
-  }, [path, limit, paramsKey, params, nonce]);
+  }, [path, limit, paramsKey, nonce]); // only re-run when content of params (paramsKey) changes
 
   return { tracks, loading, error, reload };
 }
