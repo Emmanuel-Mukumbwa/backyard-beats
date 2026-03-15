@@ -10,7 +10,7 @@ import { Navigate, useLocation } from "react-router-dom";
  * - If not authenticated, redirects to /login with redirectTo=<path+search>.
  *
  * Usage:
- * <RequireAuth>
+ * <RequireAuth> 
  *   <ProtectedPage />
  * </RequireAuth>
  */
