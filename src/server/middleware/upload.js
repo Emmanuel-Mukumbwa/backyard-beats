@@ -95,14 +95,22 @@ const routingUpload = multer({
   storage: cloudinaryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
+    // Log every file received for debugging
+    console.log(`Processing field: ${file.fieldname}, mimetype: ${file.mimetype}, originalname: ${file.originalname}`);
+
     if (file.fieldname === 'file') {
       if (!file.mimetype || !file.mimetype.startsWith('audio/')) {
-        return cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'Track file must be an audio type'));
+        console.error(`❌ Rejected file (field=${file.fieldname}) – not audio: ${file.mimetype}`);
+        return cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', `File must be an audio type, got ${file.mimetype}`));
       }
     } else if (['artwork', 'image', 'photo'].includes(file.fieldname)) {
       if (!file.mimetype || !file.mimetype.startsWith('image/')) {
-        return cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'Artwork/image must be an image type'));
+        console.error(`❌ Rejected file (field=${file.fieldname}) – not image: ${file.mimetype}`);
+        return cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', `Artwork must be an image type, got ${file.mimetype}`));
       }
+    } else {
+      // Unexpected field name – log a warning but still accept (or you can reject)
+      console.warn(`⚠️ Unexpected field name: ${file.fieldname} – accepting anyway`);
     }
     cb(null, true);
   }
