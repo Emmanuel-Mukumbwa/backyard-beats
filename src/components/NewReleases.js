@@ -1,9 +1,9 @@
-// src/components/NewReleases.js
 import React, { useEffect, useState, useRef, useContext } from 'react';
 import axios from '../api/axiosConfig';
 import { ListGroup, Spinner, Image, Button } from 'react-bootstrap';
 import { FaDownload, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 import { AuthContext } from '../context/AuthContext';
+import ToastMessage from './ToastMessage'; // added for toast
 
 /** sanitize file name for client (small helper) */
 function sanitizeFilename(s) {
@@ -16,7 +16,7 @@ function sanitizeFilename(s) {
 }
 
 /** download helper (forces filename by creating File object) */
-async function downloadTrackById(trackId, setToast) {
+async function downloadTrackById(trackId, setToast, setDownloadingId) {
   try {
     const res = await axios.get(`/download/${trackId}`, { responseType: 'blob' });
     const disposition = (res.headers && (res.headers['content-disposition'] || res.headers['Content-Disposition'])) || '';
@@ -70,12 +70,16 @@ async function downloadTrackById(trackId, setToast) {
       a.remove();
       window.URL.revokeObjectURL(url);
     }
-    if (typeof setToast === 'function') setToast({ show: true, message: `Download started: ${filename}`, variant: 'success' });
+    if (typeof setToast === 'function') {
+      setToast({ show: true, message: `Download started: ${filename}`, variant: 'success' });
+    }
+    if (setDownloadingId) setDownloadingId(null);
   } catch (err) {
     if (typeof setToast === 'function') {
       const message = (err && err.message) ? err.message : 'Download failed';
       setToast({ show: true, message: `Download failed: ${message}`, variant: 'danger' });
     }
+    if (setDownloadingId) setDownloadingId(null);
   }
 }
 
@@ -87,6 +91,10 @@ export default function NewReleases({ limit = 6, onSelect = () => {} }) {
   const playingRef = useRef(null);
   const mountedRef = useRef(true);
   const { user, artist: myArtist } = useContext(AuthContext);
+
+  // Toast and downloading state
+  const [toast, setToast] = useState({ show: false, message: '', variant: 'info' });
+  const [downloadingId, setDownloadingId] = useState(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -125,95 +133,113 @@ export default function NewReleases({ limit = 6, onSelect = () => {} }) {
     } catch (e) { /* ignore */ }
   }
 
+  const handleDownload = (trackId) => {
+    setDownloadingId(trackId);
+    setToast({ show: true, message: 'Preparing your download...', variant: 'info' });
+    downloadTrackById(trackId, setToast, setDownloadingId);
+  };
+
   const totalPages = Math.max(1, Math.ceil((total || 0) / limit));
 
   if (loading) return <div className="py-2 text-center"><Spinner animation="border" size="sm" /></div>;
   if (!items.length) return <div className="small text-muted">No recent releases.</div>;
 
   return (
-    <div>
-      <ListGroup size="sm" variant="flush">
-        {items.map(t => {
-          const artistName = t.artist?.display_name || t.artist?.displayName || '';
-          const artistId = t.artist?.id || null;
-          const displayDate = t.release_date || t.created_at || null;
-          const artwork = t.artwork_url || t.preview_artwork || null;
-          const preview = t.preview_url || t.previewUrl || null;
+    <>
+      <ToastMessage
+        show={toast.show}
+        onClose={() => setToast(s => ({ ...s, show: false }))}
+        message={toast.message}
+        variant={toast.variant}
+        delay={3500}
+        position="top-end"
+      />
+      <div>
+        <ListGroup size="sm" variant="flush">
+          {items.map(t => {
+            const artistName = t.artist?.display_name || t.artist?.displayName || '';
+            const artistId = t.artist?.id || null;
+            const displayDate = t.release_date || t.created_at || null;
+            const artwork = t.artwork_url || t.preview_artwork || null;
+            const preview = t.preview_url || t.previewUrl || null;
+            const isDownloading = downloadingId === t.id;
 
-          return (
-            <ListGroup.Item key={t.id} className="py-2">
-              <div className="d-flex align-items-start">
-                {artwork ? (
-                  <Image src={artwork} rounded style={{ width: 56, height: 56, objectFit: 'cover', marginRight: 12 }} />
-                ) : (
-                  <div style={{ width: 56, height: 56, marginRight: 12, background: '#eee', borderRadius: 6 }} />
-                )}
+            return (
+              <ListGroup.Item key={t.id} className="py-2">
+                <div className="d-flex align-items-start">
+                  {artwork ? (
+                    <Image src={artwork} rounded style={{ width: 56, height: 56, objectFit: 'cover', marginRight: 12 }} />
+                  ) : (
+                    <div style={{ width: 56, height: 56, marginRight: 12, background: '#eee', borderRadius: 6 }} />
+                  )}
 
-                <div className="flex-grow-1">
-                  <div className="d-flex align-items-start justify-content-between">
-                    <div style={{ minWidth: 0 }}>
-                      <div
-                        className="small fw-bold text-truncate"
-                        style={{ maxWidth: '100%', cursor: artistId ? 'pointer' : 'default' }}
-                        onClick={() => artistId && onSelect(artistId)}
-                        title={t.title}
-                      >
-                        {t.title}
+                  <div className="flex-grow-1">
+                    <div className="d-flex align-items-start justify-content-between">
+                      <div style={{ minWidth: 0 }}>
+                        <div
+                          className="small fw-bold text-truncate"
+                          style={{ maxWidth: '100%', cursor: artistId ? 'pointer' : 'default' }}
+                          onClick={() => artistId && onSelect(artistId)}
+                          title={t.title}
+                        >
+                          {t.title}
+                        </div>
+                        <div className="small text-muted" style={{ marginTop: 4 }}>
+                          {artistName ? `${artistName} ` : ''}{t.genre ? `• ${t.genre} ` : ''}{displayDate ? `• ${new Date(displayDate).toLocaleDateString()}` : ''}
+                        </div>
                       </div>
-                      <div className="small text-muted" style={{ marginTop: 4 }}>
-                        {artistName ? `${artistName} ` : ''}{t.genre ? `• ${t.genre} ` : ''}{displayDate ? `• ${new Date(displayDate).toLocaleDateString()}` : ''}
+
+                      <div className="ms-2 text-muted small" style={{ whiteSpace: 'nowrap' }}>
+                        {t.plays ? Number(t.plays) : ''}
                       </div>
                     </div>
 
-                    <div className="ms-2 text-muted small" style={{ whiteSpace: 'nowrap' }}>
-                      {t.plays ? Number(t.plays) : ''}
+                    <div className="d-flex align-items-center mt-2">
+                      {preview ? (
+                        <audio
+                          controls
+                          controlsList="nodownload"
+                          preload="none"
+                          style={{ width: 140, height: 30 }}
+                          src={preview}
+                          onPlay={e => { handlePlay(e.target); recordListenIfNeeded(t); }}
+                          onPause={e => handlePause(e.target)}
+                          onEnded={() => { if (playingRef.current) playingRef.current = null; }}
+                          aria-label={`Preview for ${t.title}`}
+                        />
+                      ) : (
+                        <div className="small text-muted me-2">No preview</div>
+                      )}
+
+                      {preview ? (
+                        <Button
+                          size="sm"
+                          variant="link"
+                          onClick={() => handleDownload(t.id)}
+                          disabled={isDownloading}
+                          title="Download track"
+                          className="ms-3 p-0"
+                          aria-label={`Download ${t.title}`}
+                        >
+                          {isDownloading ? <Spinner animation="border" size="sm" /> : <FaDownload />}
+                        </Button>
+                      ) : null}
                     </div>
-                  </div>
-
-                  <div className="d-flex align-items-center mt-2">
-                    {preview ? (
-                      <audio
-                        controls
-                        controlsList="nodownload"
-                        preload="none"
-                        style={{ width: 140, height: 30 }}
-                        src={preview}
-                        onPlay={e => { handlePlay(e.target); recordListenIfNeeded(t); }}
-                        onPause={e => handlePause(e.target)}
-                        onEnded={() => { if (playingRef.current) playingRef.current = null; }}
-                        aria-label={`Preview for ${t.title}`}
-                      />
-                    ) : (
-                      <div className="small text-muted me-2">No preview</div>
-                    )}
-
-                    {preview ? (
-                      <Button
-                        size="sm"
-                        variant="link"
-                        onClick={() => downloadTrackById(t.id)}
-                        title="Download track"
-                        className="ms-3 p-0"
-                        aria-label={`Download ${t.title}`}
-                      >
-                        <FaDownload />
-                      </Button>
-                    ) : null}
                   </div>
                 </div>
-              </div>
-            </ListGroup.Item>
-          );
-        })}
-      </ListGroup>
+              </ListGroup.Item>
+            );
+          })}
+        </ListGroup>
 
-      <div className="d-flex justify-content-between align-items-center mt-2">
-        <div className="small text-muted">Page {page} / {totalPages}</div>
-        <div>
-          <Button variant="link" size="sm" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}><FaChevronLeft /></Button>
-          <Button variant="link" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}><FaChevronRight /></Button>
+        <div className="d-flex justify-content-between align-items-center mt-2">
+          <div className="small text-muted">Page {page} / {totalPages}</div>
+          <div>
+            <Button variant="link" size="sm" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}><FaChevronLeft /></Button>
+            <Button variant="link" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}><FaChevronRight /></Button>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
