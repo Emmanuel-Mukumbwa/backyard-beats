@@ -66,7 +66,7 @@ app.get('/health', (req, res) => {
 
 // Error handling middleware (keeps your existing handler)
 app.use((err, req, res, next) => {
-  console.error('Error:', err && (err.message || err));
+  console.error('Error:', err.stack || err.message || err);
   if (!res.headersSent) {
     res.status(500).json({ error: 'Internal Server Error' });
   } else {
