@@ -3,7 +3,7 @@ const pool = require('../db').pool;
 
 /**
  * GET /events/mine
- */
+ */ 
 async function listMyEvents(req, res) {
   try {
     const userId = req.user.id;
