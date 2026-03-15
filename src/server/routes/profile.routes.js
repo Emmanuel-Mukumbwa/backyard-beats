@@ -8,4 +8,4 @@ const profileController = require('../controllers/profile.controller');
 // GET /profile/me
 router.get('/me', auth, profileController.getMyProfile);
 
-module.exports = router; 
+module.exports = router;  
