@@ -217,7 +217,7 @@ exports.checkFavorite = async (req, res, next) => {
       if (artist.user_deleted_at || artist.user_banned || artist.is_rejected || !artist.is_approved) {
         return res.json({ following: false });
       }
-    }
+    } 
 
     const [rows] = await pool.query('SELECT 1 FROM favorites WHERE user_id = ? AND artist_id = ? LIMIT 1', [userId, artistId]);
     return res.json({ following: !!(rows && rows.length) });
