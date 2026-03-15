@@ -30,13 +30,13 @@ if (process.env.DB_SSL_CA) {
   }
 
   dialectOptions.ssl = {
-    rejectUnauthorized: true,
+    rejectUnauthorized: false,
     ca: caCert
   };
 } else if (process.env.DB_SSL === 'true') {
   // Fallback: use SSL without specifying a CA (system certificates)
   dialectOptions.ssl = {
-    rejectUnauthorized: true
+    rejectUnauthorized: false
   };
 }
 
