@@ -31,11 +31,13 @@ async function getUserRow(userId) {
 /**
  * Helper: check a track's visibility (same as in playlists)
  * returns { ok: boolean, status?, message?, trackRow? }
+ * trackRow includes artist and user (owner) info when found
  */
 async function validateTrackVisibility(trackId, adminOverride = false) {
   const sql = `
     SELECT t.id AS track_id,
            t.title,
+           t.artist_id,
            a.id AS artist_id,
            a.is_approved AS artist_is_approved,
            a.is_rejected AS artist_is_rejected,
@@ -58,6 +60,7 @@ async function validateTrackVisibility(trackId, adminOverride = false) {
     if (row.artist_is_rejected) return { ok: false, status: 'rejected', message: 'Artist profile rejected' };
     if (!row.artist_is_approved) return { ok: false, status: 'pending_verification', message: 'Artist profile pending verification' };
   }
+
   return { ok: true, trackRow: row };
 }
 
@@ -83,6 +86,7 @@ exports.recordListen = async (req, res, next) => {
     const adminOverride = isAdminIncludeUnapproved(req);
 
     // Validate track/artist visibility if provided
+    let validatedTrackRow = null;
     if (trackId) {
       const validation = await validateTrackVisibility(trackId, adminOverride);
       if (!validation.ok) {
@@ -91,9 +95,15 @@ exports.recordListen = async (req, res, next) => {
         if (validation.status === 'banned') return res.status(403).json({ status: 'banned', message: validation.message });
         return res.status(403).json({ status: validation.status, message: validation.message });
       }
+      validatedTrackRow = validation.trackRow;
+
+      // **NEW**: Prevent artists from recording listens on their *own* tracks
+      if (validatedTrackRow && Number(validatedTrackRow.user_id) === Number(user.id) && !adminOverride) {
+        return res.status(200).json({ message: 'Listen by track owner ignored', ignored: true });
+      }
     } else if (artistId) {
       // If only artistId provided, check artist/user visibility
-      const [aRows] = await pool.query('SELECT a.*, u.deleted_at AS user_deleted_at, u.banned AS user_banned FROM artists a LEFT JOIN users u ON a.user_id = u.id WHERE a.id = ? LIMIT 1', [artistId]);
+      const [aRows] = await pool.query('SELECT a.*, u.id AS user_id, u.deleted_at AS user_deleted_at, u.banned AS user_banned FROM artists a LEFT JOIN users u ON a.user_id = u.id WHERE a.id = ? LIMIT 1', [artistId]);
       if (!aRows || aRows.length === 0) return res.status(404).json({ error: 'Artist not found' });
       const ar = aRows[0];
       if (!adminOverride) {
@@ -101,6 +111,11 @@ exports.recordListen = async (req, res, next) => {
         if (ar.user_banned) return res.status(403).json({ status: 'banned', message: 'Artist account banned' });
         if (ar.is_rejected) return res.status(403).json({ status: 'rejected', message: 'Artist profile rejected' });
         if (!ar.is_approved) return res.status(403).json({ status: 'pending_verification', message: 'Artist profile pending verification' });
+      }
+
+      // **NEW**: Prevent artist from recording listens on their own artist id
+      if (Number(ar.user_id) === Number(user.id) && !adminOverride) {
+        return res.status(200).json({ message: 'Listen by artist owner ignored', ignored: true });
       }
     }
 
