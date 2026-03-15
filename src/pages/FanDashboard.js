@@ -1,4 +1,3 @@
-// src/pages/FanDashboard.jsx
 import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
 import { Tabs, Tab, ListGroup, Alert, Image } from 'react-bootstrap';
 import { useLocation } from 'react-router-dom';
@@ -9,10 +8,8 @@ import MyEvents from '../components/MyEvents';
 import RecentlyUploaded from '../components/RecentlyUploaded';
 import MyRatings from '../components/MyRatings';
 import PlaylistsList from '../components/PlaylistsList';
-
 import ToastMessage from '../components/ToastMessage';
 import LoadingSpinner from '../components/LoadingSpinner';
-
 import { AuthContext } from '../context/AuthContext';
 
 export default function FanDashboard() {
@@ -167,7 +164,6 @@ export default function FanDashboard() {
     if (!user || !user.id || !track) return;
 
     // Skip recording if current user is the artist owner of the track
-    // (client-side guard; server should also enforce rules)
     if (myArtist && track.artist_id && Number(myArtist.id) === Number(track.artist_id)) {
       return;
     }
@@ -177,8 +173,7 @@ export default function FanDashboard() {
         track_id: track.id,
         artist_id: track.artist_id || null
       });
-      // refresh dashboard listens
-      await loadDashboardData();
+      // Do NOT refresh the dashboard – it would interrupt playback
     } catch {
       // non-blocking; just warn
       console.warn('Could not record play');
