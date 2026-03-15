@@ -22,9 +22,10 @@ import TermsAndConditions from './pages/TermsAndConditions';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import BrowseMusic from './pages/BrowseMusic';
 import PlaylistPage from './pages/PlaylistPage';
+import Profile from './pages/Profile';
 
 export default function App() {
-  return (
+  return ( 
     <AuthProvider>
       <div className="d-flex flex-column min-vh-100">
         <Navbar />
@@ -81,6 +82,16 @@ export default function App() {
                 </RequireAuth>
               }
             />
+           
+            <Route
+              path="/profile"
+              element={
+                <RequireAuth>
+                  <Profile />
+                </RequireAuth>
+              }
+            />
+
             {/* Support route - require auth to create tickets */}
             <Route
               path="/support"
