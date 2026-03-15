@@ -67,7 +67,7 @@ CREATE TABLE `tracks` (
   `is_rejected` tinyint(1) NOT NULL DEFAULT '0',
   `approved_at` timestamp NULL DEFAULT NULL,
   `rejected_at` timestamp NULL DEFAULT NULL,
-  `approved_by` int DEFAULT NULL,
+  `approved_by` int DEFAULT NULL, 
   `rejected_by` int DEFAULT NULL,
   `rejection_reason` varchar(512) DEFAULT NULL,
   PRIMARY KEY (`id`),
