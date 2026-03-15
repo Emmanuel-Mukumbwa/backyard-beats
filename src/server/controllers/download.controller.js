@@ -1,7 +1,7 @@
-//src/server/controllers/download.controller.js
 const pool = require('../db').pool;
 const path = require('path');
-const fs = require('fs');
+const axios = require('axios'); // Add this line
+// fs is no longer needed for external URLs, but keep for local fallback
 
 const UPLOADS_PREFIX = process.env.UPLOADS_PREFIX || '/uploads';
 const TRACKS_SUBDIR = 'tracks';
@@ -12,7 +12,6 @@ function isAdminIncludeUnapproved(req) {
 
 function sanitizeName(s) {
   if (!s) return '';
-  // keep parentheses, dashes, underscores, spaces; remove dangerous chars and trim
   return String(s)
     .replace(/["'<>:\\/|?*]+/g, '')
     .replace(/\s+/g, ' ')
@@ -52,19 +51,15 @@ exports.downloadTrack = async (req, res, next) => {
       if (!row.artist_is_approved) return res.status(403).json({ status: 'pending_verification', message: 'Artist profile pending verification' });
     }
 
-    // Determine file URL field (existing logic)
     const rawFile = row.preview_url || row.previewUrl || row.file_url || row.fileUrl || null;
     if (!rawFile) return res.status(404).json({ error: 'No audio file available for this track' });
 
-    // ------------------------------------------------------------------
-    // Build a human‑friendly filename for the download
-    // ------------------------------------------------------------------
+    // Build filename (same as before)
     let prettyBase = null;
     if (row.title && typeof row.title === 'string' && row.title.trim().length > 0) {
       prettyBase = sanitizeName(row.title);
     }
 
-    // If no title, try common original‑name columns
     if (!prettyBase) {
       const candidateOriginals = [
         row.original_name, row.file_name, row.originalFilename, row.originalName, row.filename, row.upload_name
@@ -79,22 +74,17 @@ exports.downloadTrack = async (req, res, next) => {
       }
     }
 
-    // Determine file extension from the rawFile URL (if possible), else fallback
-    let ext = '.mp3'; // default
+    let ext = '.mp3';
     try {
-      const url = new URL(rawFile, 'http://localhost'); // base is ignored for absolute URLs
+      const url = new URL(rawFile, 'http://localhost');
       const pathname = url.pathname;
       const extFromUrl = path.extname(pathname).toLowerCase();
       if (extFromUrl && ['.mp3', '.m4a', '.ogg', '.wav', '.flac', '.mp4'].includes(extFromUrl)) {
         ext = extFromUrl;
       }
-    } catch (e) {
-      // not a valid URL, fallback to extension from local path logic below
-    }
+    } catch (e) {}
 
-    // If we still don't have a prettyBase, fallback to deriving from stored filename (only relevant for local)
     if (!prettyBase && !/^https?:\/\//i.test(rawFile)) {
-      // local file handling: extract from filename
       const normalized = rawFile.startsWith('/') ? rawFile : `/${rawFile}`;
       const fileBasename = path.posix.basename(normalized);
       let base = fileBasename.replace(/\.[^/.]+$/, '');
@@ -106,50 +96,53 @@ exports.downloadTrack = async (req, res, next) => {
       base = base.replace(/^[\-_]+/, '');
       prettyBase = sanitizeName(base) || `track-${id}`;
     } else if (!prettyBase) {
-      // fallback for external URLs that couldn't derive a name
       prettyBase = `track-${id}`;
     }
 
-    // Append the tag
     const tag = '(downloaded from backyardbeats)';
     let attachmentBase = `${prettyBase} ${tag}`;
     if (attachmentBase.length > 190) attachmentBase = attachmentBase.substring(0, 190);
     const attachmentFilename = `${attachmentBase}${ext}`;
 
-    // Common headers that should be sent regardless of file source
     res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-Track-Title, X-Track-Artist, X-Track-Genre, Content-Type');
     res.setHeader('X-Track-Title', row.title || '');
     res.setHeader('X-Track-Artist', row.artist_name || '');
     res.setHeader('X-Track-Genre', row.genre || '');
+    res.setHeader('Content-Disposition', `attachment; filename="${attachmentFilename}"; filename*=UTF-8''${encodeURIComponent(attachmentFilename)}`);
 
-    // ------------------------------------------------------------------
-    // External URL handling (including Cloudinary)
-    // ------------------------------------------------------------------
+    // ---------- Proxy external files ----------
     if (/^https?:\/\//i.test(rawFile)) {
-      // If it's a Cloudinary URL, add parameters to force download and set filename
-      if (rawFile.includes('cloudinary.com')) {
-        try {
-          const url = new URL(rawFile);
-          // Add the download flag
-          url.searchParams.set('fl_attachment', '');
-          // Set the desired filename (Cloudinary will use this as the downloaded file name)
-          url.searchParams.set('filename', attachmentFilename);
-          const downloadUrl = url.toString();
-          return res.redirect(302, downloadUrl);
-        } catch (e) {
-          // If URL parsing fails, fall back to simple redirect
-          console.error('Error building Cloudinary download URL:', e);
-          return res.redirect(302, rawFile);
-        }
-      }
+      try {
+        const response = await axios({
+          method: 'get',
+          url: rawFile,
+          responseType: 'stream',
+          // Do not forward cookies or auth headers
+        });
 
-      // For other external URLs, just redirect (they may not support forced download naming)
-      return res.redirect(302, rawFile);
+        // Set content type based on response headers or fallback
+        const contentType = response.headers['content-type'] || 'application/octet-stream';
+        res.setHeader('Content-Type', contentType);
+
+        // Pipe the stream to the client
+        response.data.pipe(res);
+
+        response.data.on('error', (err) => {
+          console.error('Error streaming from Cloudinary:', err);
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to stream file' });
+          } else {
+            res.destroy();
+          }
+        });
+      } catch (err) {
+        console.error('Failed to proxy external file:', err);
+        return res.status(502).json({ error: 'Could not retrieve file from remote server' });
+      }
+      return; // Response will be handled by the stream
     }
 
-    // ------------------------------------------------------------------
-    // Local file on disk handling (kept for backward compatibility during migration)
-    // ------------------------------------------------------------------
+    // ---------- Local file handling (fallback) ----------
     const normalized = rawFile.startsWith('/') ? rawFile : `/${rawFile}`;
     const fileBasename = path.posix.basename(normalized);
     const uploadsDir = path.join(__dirname, '..', 'uploads');
@@ -159,22 +152,16 @@ exports.downloadTrack = async (req, res, next) => {
       return res.status(404).json({ error: 'File not found on server', file: fileOnDisk });
     }
 
-    // infer content type by extension (already have ext variable)
     let contentType = 'application/octet-stream';
     if (ext === '.mp3') contentType = 'audio/mpeg';
     else if (ext === '.m4a' || ext === '.mp4') contentType = 'audio/mp4';
     else if (ext === '.ogg') contentType = 'audio/ogg';
     else if (ext === '.wav') contentType = 'audio/wav';
     else if (ext === '.flac') contentType = 'audio/flac';
-
-    // Set headers for local file download
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="${attachmentFilename}"; filename*=UTF-8''${encodeURIComponent(attachmentFilename)}`);
 
-    // debug log (optional)
     console.log(`Download: id=${id} file=${fileOnDisk} attach="${attachmentFilename}"`);
 
-    // stream file
     const stream = fs.createReadStream(fileOnDisk);
     stream.on('error', (err) => {
       console.error('File stream error', err);
