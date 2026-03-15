@@ -30,68 +30,14 @@ export default function PlaylistView({ playlistId, show, onHide }) {
   };
   const closeToast = () => setToast(prev => ({ ...prev, show: false }));
 
-  useEffect(() => {
-    if (!playlistId || !show) return;
-    let cancelled = false;
-    setLoading(true);
-
-    axios.get(`/fan/playlists/${playlistId}`)
-      .then(res => {
-        if (cancelled) return;
-        setPlaylist({ id: res.data.id, name: res.data.name, description: res.data.description });
-
-        const t = Array.isArray(res.data.tracks) ? res.data.tracks.map(tr => ({
-          id: tr.id || tr.track_id,
-          title: tr.title || 'Unknown',
-          preview_url: tr.preview_url || tr.previewUrl || null,
-          duration: tr.duration || null,
-          artwork_url: tr.artwork_url || tr.preview_artwork || null,
-          artist_name: tr.artist?.display_name || (tr.artist_name || ''),
-          track_id: tr.track_id || tr.id
-        })) : [];
-
-        setTracks(t);
-      })
-      .catch(err => {
-        console.error('Failed to load playlist', err);
-        setPlaylist(null);
-        setTracks([]);
-        showToast({ message: err?.response?.data?.error || 'Failed to load playlist', variant: 'danger' });
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
-
-    return () => { cancelled = true; };
-  }, [playlistId, show]);
-
-  // recent tracks
-  useEffect(() => {
-    if (!show) return;
-    let cancelled = false;
-    setLoadingRecent(true);
-
-    axios.get('/public/tracks/recent?limit=20')
-      .then(res => {
-        if (cancelled) return;
-        const items = Array.isArray(res.data?.items) ? res.data.items : [];
-        const mapped = items.map(t => ({
-          id: t.id,
-          title: t.title,
-          preview_url: t.preview_url,
-          artwork_url: t.artwork_url,
-          duration: t.duration,
-          artist: t.artist || null
-        }));
-        setRecentTracks(mapped);
-      })
-      .catch(err => {
-        console.error('Failed to load recent tracks', err);
-        setRecentTracks([]);
-        showToast({ message: 'Failed to load recent tracks', variant: 'warning' });
-      })
-      .finally(() => { if (!cancelled) setLoadingRecent(false); });
-
-    return () => { cancelled = true; };
-  }, [show]);
+  // Helper: resolve relative upload paths to absolute backend URLs to avoid dev proxy errors (ECONNREFUSED)
+  function resolveToBackend(raw) {
+    if (!raw) return null;
+    if (/^https?:\/\//i.test(raw)) return raw;
+    const base = (axios && axios.defaults && axios.defaults.baseURL) || process.env.REACT_APP_API_URL || window.location.origin;
+    const rel = raw.startsWith('/') ? raw : `/${raw}`;
+    return `${base.replace(/\/$/, '')}${rel}`;
+  }
 
   // playback helpers (single playback)
   function handlePlay(audioEl) {
@@ -104,19 +50,116 @@ export default function PlaylistView({ playlistId, show, onHide }) {
     if (playingRef.current === audioEl) playingRef.current = null;
   }
 
+  useEffect(() => {
+    if (!playlistId || !show) {
+      return;
+    }
+
+    const controller = new AbortController();
+    let cancelled = false;
+    setLoading(true);
+
+    (async () => {
+      try {
+        const res = await axios.get(`/fan/playlists/${playlistId}`, { signal: controller.signal });
+        if (cancelled) return;
+
+        setPlaylist({ id: res.data.id, name: res.data.name, description: res.data.description });
+
+        const t = Array.isArray(res.data.tracks) ? res.data.tracks.map(tr => {
+          const rawArtwork = tr.artwork_url || tr.preview_artwork || tr.previewArtwork || null;
+          const rawPreview = tr.preview_url || tr.previewUrl || null;
+          return {
+            id: tr.id || tr.track_id,
+            title: tr.title || tr.track_title || tr.track_name || 'Unknown',
+            preview_url: resolveToBackend(rawPreview),
+            duration: tr.duration || null,
+            artwork_url: rawArtwork ? resolveToBackend(rawArtwork) : null,
+            artist_name: tr.artist?.display_name || (tr.artist_name || ''),
+            track_id: tr.track_id || tr.id
+          };
+        }) : [];
+
+        setTracks(t);
+      } catch (err) {
+        if (err?.name === 'CanceledError' || err?.message === 'canceled') {
+          // ignore abort
+        } else {
+          console.error('Failed to load playlist', err);
+          setPlaylist(null);
+          setTracks([]);
+          showToast({ message: err?.response?.data?.error || 'Failed to load playlist', variant: 'danger' });
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      try { controller.abort(); } catch (e) { /* ignore */ }
+    };
+    // only re-run when playlistId or show changes
+  }, [playlistId, show]);
+
+  // recent tracks (for browse list)
+  useEffect(() => {
+    if (!show) return;
+    const controller = new AbortController();
+    let cancelled = false;
+    setLoadingRecent(true);
+
+    (async () => {
+      try {
+        const res = await axios.get('/public/tracks/recent', { params: { limit: 20 }, signal: controller.signal });
+        if (cancelled) return;
+
+        const items = Array.isArray(res.data?.items) ? res.data.items : (Array.isArray(res.data) ? res.data : []);
+        const mapped = items.map(t => ({
+          id: t.id,
+          title: t.title,
+          preview_url: resolveToBackend(t.preview_url || t.previewUrl || null),
+          artwork_url: resolveToBackend(t.artwork_url || t.artworkUrl || null),
+          duration: t.duration,
+          artist: t.artist || null
+        }));
+        setRecentTracks(mapped);
+      } catch (err) {
+        if (err?.name === 'CanceledError' || err?.message === 'canceled') {
+          // ignore
+        } else {
+          console.error('Failed to load recent tracks', err);
+          setRecentTracks([]);
+          showToast({ message: 'Failed to load recent tracks', variant: 'warning' });
+        }
+      } finally {
+        if (!cancelled) setLoadingRecent(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      try { controller.abort(); } catch (e) { /* ignore */ }
+    };
+  }, [show]);
+
   async function removeTrack(trackId) {
     if (!window.confirm('Remove this track from playlist?')) return;
     try {
       await axios.delete(`/fan/playlists/${playlistId}/tracks/${trackId}`);
       const res = await axios.get(`/fan/playlists/${playlistId}`);
-      const t = Array.isArray(res.data.tracks) ? res.data.tracks.map(tr => ({
-        id: tr.id || tr.track_id,
-        title: tr.title || 'Unknown',
-        preview_url: tr.preview_url || tr.previewUrl || null,
-        duration: tr.duration || null,
-        artwork_url: tr.artwork_url || tr.preview_artwork || null,
-        artist_name: tr.artist?.display_name || (tr.artist_name || '')
-      })) : [];
+      const t = Array.isArray(res.data.tracks) ? res.data.tracks.map(tr => {
+        const rawArtwork = tr.artwork_url || tr.preview_artwork || null;
+        const rawPreview = tr.preview_url || tr.previewUrl || null;
+        return {
+          id: tr.id || tr.track_id,
+          title: tr.title || 'Unknown',
+          preview_url: resolveToBackend(rawPreview),
+          duration: tr.duration || null,
+          artwork_url: rawArtwork ? resolveToBackend(rawArtwork) : null,
+          artist_name: tr.artist?.display_name || (tr.artist_name || '')
+        };
+      }) : [];
       setTracks(t);
       showToast({ message: 'Track removed', variant: 'success' });
     } catch (err) {
@@ -130,14 +173,18 @@ export default function PlaylistView({ playlistId, show, onHide }) {
       await axios.post(`/fan/playlists/${playlistId}/tracks`, { track_id: trackId });
       const res = await axios.get(`/fan/playlists/${playlistId}`);
       const t = Array.isArray(res.data.tracks)
-        ? res.data.tracks.map(tr => ({
-            id: tr.id || tr.track_id,
-            title: tr.title || 'Unknown',
-            preview_url: tr.preview_url || null,
-            duration: tr.duration || null,
-            artwork_url: tr.artwork_url || tr.preview_artwork || null,
-            artist_name: tr.artist?.display_name || ''
-          }))
+        ? res.data.tracks.map(tr => {
+            const rawArtwork = tr.artwork_url || tr.preview_artwork || null;
+            const rawPreview = tr.preview_url || tr.previewUrl || null;
+            return {
+              id: tr.id || tr.track_id,
+              title: tr.title || 'Unknown',
+              preview_url: resolveToBackend(rawPreview),
+              duration: tr.duration || null,
+              artwork_url: rawArtwork ? resolveToBackend(rawArtwork) : null,
+              artist_name: tr.artist?.display_name || ''
+            };
+          })
         : [];
       setTracks(t);
       showToast({ message: 'Track added', variant: 'success' });
@@ -151,14 +198,18 @@ export default function PlaylistView({ playlistId, show, onHide }) {
     try {
       await axios.put(`/fan/playlists/${playlistId}/reorder`, { track_order: newOrder });
       const res = await axios.get(`/fan/playlists/${playlistId}`);
-      const t = Array.isArray(res.data.tracks) ? res.data.tracks.map(tr => ({
-        id: tr.id || tr.track_id,
-        title: tr.title || 'Unknown',
-        preview_url: tr.preview_url || tr.previewUrl || null,
-        duration: tr.duration || null,
-        artwork_url: tr.artwork_url || tr.preview_artwork || null,
-        artist_name: tr.artist?.display_name || (tr.artist_name || '')
-      })) : [];
+      const t = Array.isArray(res.data.tracks) ? res.data.tracks.map(tr => {
+        const rawArtwork = tr.artwork_url || tr.preview_artwork || null;
+        const rawPreview = tr.preview_url || tr.previewUrl || null;
+        return {
+          id: tr.id || tr.track_id,
+          title: tr.title || 'Unknown',
+          preview_url: resolveToBackend(rawPreview),
+          duration: tr.duration || null,
+          artwork_url: rawArtwork ? resolveToBackend(rawArtwork) : null,
+          artist_name: tr.artist?.display_name || (tr.artist_name || '')
+        };
+      }) : [];
       setTracks(t);
       showToast({ message: 'Playlist reordered', variant: 'success' });
     } catch (err) {
@@ -205,7 +256,7 @@ export default function PlaylistView({ playlistId, show, onHide }) {
             {/* Playlist tracks with inline previews */}
             <ListGroup className="mt-3">
               {tracks.map((t, i) => (
-                <ListGroup.Item key={t.id}>
+                <ListGroup.Item key={t.id ?? `${i}-${t.title}`}>
                   <Row className="align-items-center">
                     <Col xs={8} className="d-flex align-items-center">
                       <Image
