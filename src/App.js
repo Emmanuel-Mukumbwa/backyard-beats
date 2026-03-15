@@ -21,6 +21,7 @@ import EventDetail from './pages/EventDetail';
 import TermsAndConditions from './pages/TermsAndConditions';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import BrowseMusic from './pages/BrowseMusic';
+import PlaylistPage from './pages/PlaylistPage';
 
 export default function App() {
   return (
@@ -39,6 +40,7 @@ export default function App() {
             <Route path="/music" element={<BrowseMusic />} />
             <Route path="/terms" element={<TermsAndConditions />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />
+            <Route path="/playlist/:id" element={<PlaylistPage />} />
             <Route
               path="/onboard"
               element={
