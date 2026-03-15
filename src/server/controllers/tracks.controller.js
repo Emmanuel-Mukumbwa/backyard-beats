@@ -1,10 +1,7 @@
+// src/server/controllers/tracks.controller.js
 const pool = require('../db').pool;
 const path = require('path');
-const fs = require('fs');
-
-const UPLOADS_PREFIX = process.env.UPLOADS_PREFIX || '/uploads';
-const TRACKS_SUBDIR = 'tracks';
-const ARTWORK_SUBDIR = path.posix.join(TRACKS_SUBDIR, 'artwork');
+// fs is no longer needed because we don't access local files
 
 // Admin override helper (admin + ?include_unapproved=1)
 function isAdminIncludeUnapproved(req) {
@@ -17,7 +14,7 @@ async function getArtistIdForUser(userId) {
   if (!rows || rows.length === 0) return null;
   return rows[0];
 }
-
+ 
 async function getUserRow(userId) {
   if (!userId) return null;
   const [rows] = await pool.query('SELECT id, username, banned, deleted_at FROM users WHERE id = ? LIMIT 1', [userId]);
@@ -44,11 +41,6 @@ function normalizeTrackRow(row) {
 
   return base;
 }
-
-/**
- * (existing list/create/update/delete kept unchanged above/below)
- * Only the downloadTrack function has been improved to derive a nicer filename.
- */
 
 exports.listTracks = async (req, res, next) => {
   try {
@@ -125,8 +117,9 @@ exports.createTrack = async (req, res, next) => {
 
     if (!audioFile) return res.status(400).json({ error: 'No audio file uploaded (field: file)' });
 
-    const audioUrl = path.posix.join(UPLOADS_PREFIX, TRACKS_SUBDIR, audioFile.filename);
-    const artworkUrl = artworkFile ? path.posix.join(UPLOADS_PREFIX, ARTWORK_SUBDIR, artworkFile.filename) : null;
+    // Cloudinary URLs are available in `audioFile.path` and `artworkFile.path`
+    const audioUrl = audioFile.path; // full HTTPS URL
+    const artworkUrl = artworkFile ? artworkFile.path : null;
 
     const title = req.body.title ? String(req.body.title).trim() : (audioFile.originalname || 'Untitled');
     const genre = req.body.genre ? String(req.body.genre).trim() : null;
@@ -228,7 +221,7 @@ exports.updateTrack = async (req, res, next) => {
     }
 
     if (audioFile) {
-      const audioUrl = path.posix.join(UPLOADS_PREFIX, TRACKS_SUBDIR, audioFile.filename);
+      const audioUrl = audioFile.path; // Cloudinary URL
       const [cols] = await pool.query('SHOW COLUMNS FROM tracks');
       const colNames = (cols || []).map(c => String(c.Field));
       if (colNames.includes('preview_url')) { updates.push('preview_url = ?'); vals.push(audioUrl); }
@@ -245,7 +238,7 @@ exports.updateTrack = async (req, res, next) => {
     }
 
     if (artworkFile) {
-      const artworkUrl = path.posix.join(UPLOADS_PREFIX, ARTWORK_SUBDIR, artworkFile.filename);
+      const artworkUrl = artworkFile.path; // Cloudinary URL
       const [cols] = await pool.query('SHOW COLUMNS FROM tracks');
       const colNames = (cols || []).map(c => String(c.Field));
       const artworkCol = colNames.includes('preview_artwork') ? 'preview_artwork'
@@ -326,4 +319,3 @@ exports.deleteTrack = async (req, res, next) => {
     next(err);
   }
 };
-
