@@ -1,9 +1,9 @@
-// src/pages/PlaylistPage.jsx
 import React, { useEffect, useState, useRef, useContext } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Container, Row, Col, ListGroup, Image, Button } from 'react-bootstrap';
+import { Container, Row, Col, ListGroup, Image, Button, Spinner } from 'react-bootstrap';
 import axios from '../api/axiosConfig';
 import LoadingSpinner from '../components/LoadingSpinner';
+import ToastMessage from '../components/ToastMessage';
 import { AuthContext } from '../context/AuthContext';
 
 /** resolve backend base for relative /uploads paths */
@@ -26,7 +26,7 @@ function sanitizeFilename(s) {
 }
 
 /** download helper (forces filename by creating a File object) */
-async function downloadTrackById(trackId, setToast) {
+async function downloadTrackById(trackId, setToast, setDownloadingId) {
   try {
     const res = await axios.get(`/download/${trackId}`, { responseType: 'blob' });
 
@@ -68,6 +68,7 @@ async function downloadTrackById(trackId, setToast) {
       let parsed;
       try { parsed = JSON.parse(txt); } catch (e) { parsed = txt; }
       if (setToast) setToast({ show: true, message: `Download failed: ${JSON.stringify(parsed)}`, variant: 'danger' });
+      if (setDownloadingId) setDownloadingId(null);
       return;
     }
 
@@ -92,6 +93,7 @@ async function downloadTrackById(trackId, setToast) {
     }
 
     if (setToast) setToast({ show: true, message: `Download started: ${filename}`, variant: 'success' });
+    if (setDownloadingId) setDownloadingId(null);
   } catch (err) {
     let message = err.message || 'Download failed';
     try {
@@ -104,6 +106,7 @@ async function downloadTrackById(trackId, setToast) {
       }
     } catch (_) { /* ignore */ }
     if (setToast) setToast({ show: true, message: `Download failed: ${message}`, variant: 'danger' });
+    if (setDownloadingId) setDownloadingId(null);
   }
 }
 
@@ -115,7 +118,8 @@ export default function PlaylistPage() {
   const [loading, setLoading] = useState(true);
   const playingRef = useRef(null);
   const { user, artist: myArtist } = useContext(AuthContext);
-  const [setToast] = useState({ show: false, message: '', variant: 'success' });
+  const [toast, setToast] = useState({ show: false, message: '', variant: 'success' });
+  const [downloadingId, setDownloadingId] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -161,12 +165,10 @@ export default function PlaylistPage() {
     }
     playingRef.current = audioEl;
 
-    // client-side record (best-effort): skip if the current user is the track's artist owner
     if (user && user.id && track && track.id) {
       if (myArtist && track.artist && Number(myArtist.id) === Number(track.artist.id)) {
         // skip recording owner plays
       } else {
-        // fire-and-forget record
         axios.post('/fan/listens', { track_id: track.id, artist_id: track.artist?.id || null }).catch(() => {});
       }
     }
@@ -176,110 +178,136 @@ export default function PlaylistPage() {
     if (playingRef.current === audioEl) playingRef.current = null;
   }
 
+  const handleDownload = (trackId) => {
+    setDownloadingId(trackId);
+    setToast({ show: true, message: 'Preparing your download...', variant: 'info' });
+    downloadTrackById(trackId, setToast, setDownloadingId);
+  };
+
   if (loading) return <div className="text-center py-5"><LoadingSpinner /></div>;
   if (!playlist) return <div className="text-muted">Playlist not found.</div>;
 
   return (
-    <Container className="py-4">
-      <div className="mb-4">
-        <Link to={{ pathname: '/fan/dashboard', search: '?tab=playlists' }} state={{ tab: 'playlists' }}>
-          ← Back to playlists
-        </Link>
-      </div>
-
-      <div className="d-flex align-items-start justify-content-between mb-3">
-        <div>
-          <h2 className="mb-1">{playlist.name}</h2>
-          <div className="text-muted">{playlist.description}</div>
+    <>
+      <ToastMessage
+        show={toast.show}
+        onClose={() => setToast(s => ({ ...s, show: false }))}
+        message={toast.message}
+        variant={toast.variant}
+        delay={3500}
+        position="top-end"
+      />
+      <Container className="py-4">
+        <div className="mb-4">
+          <Link to={{ pathname: '/fan/dashboard', search: '?tab=playlists' }} state={{ tab: 'playlists' }}>
+            ← Back to playlists
+          </Link>
         </div>
 
-        <div className="text-end">
-          <div className="d-inline-block p-2 border rounded text-muted small" style={{ minWidth: 88 }}>
-            <div style={{ fontWeight: 600, fontSize: 18 }}>{tracks.length}</div>
-            <div style={{ fontSize: 12 }}>{tracks.length === 1 ? 'track' : 'tracks'}</div>
+        <div className="d-flex align-items-start justify-content-between mb-3">
+          <div>
+            <h2 className="mb-1">{playlist.name}</h2>
+            <div className="text-muted">{playlist.description}</div>
+          </div>
+
+          <div className="text-end">
+            <div className="d-inline-block p-2 border rounded text-muted small" style={{ minWidth: 88 }}>
+              <div style={{ fontWeight: 600, fontSize: 18 }}>{tracks.length}</div>
+              <div style={{ fontSize: 12 }}>{tracks.length === 1 ? 'track' : 'tracks'}</div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <Row>
-        <Col lg={8}>
-          <ListGroup>
-            {tracks.map(track => (
-              <ListGroup.Item key={track.id}>
-                <Row className="align-items-center">
-                  <Col md={7} className="d-flex align-items-center">
-                    <Image
-                      src={track.artwork_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(track.title || 'Track')}&background=ddd&color=333`}
-                      rounded
-                      style={{ width: 60, height: 60, objectFit: 'cover', marginRight: 15 }}
-                    />
+        <Row>
+          <Col lg={8}>
+            <ListGroup>
+              {tracks.map(track => {
+                const isDownloading = downloadingId === track.id;
+                return (
+                  <ListGroup.Item key={track.id}>
+                    <Row className="align-items-center">
+                      <Col md={7} className="d-flex align-items-center">
+                        <Image
+                          src={track.artwork_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(track.title || 'Track')}&background=ddd&color=333`}
+                          rounded
+                          style={{ width: 60, height: 60, objectFit: 'cover', marginRight: 15 }}
+                        />
 
-                    <div style={{ minWidth: 0 }}>
-                      <div className="fw-bold text-truncate" style={{ maxWidth: 420 }}>{track.title}</div>
-                      <div className="text-muted small">{track.artist?.display_name || ''}</div>
-                    </div>
-                  </Col>
+                        <div style={{ minWidth: 0 }}>
+                          <div className="fw-bold text-truncate" style={{ maxWidth: 420 }}>{track.title}</div>
+                          <div className="text-muted small">{track.artist?.display_name || ''}</div>
+                        </div>
+                      </Col>
 
-                  <Col md={5} className="text-end">
-                    {track.preview_url ? (
-                      <audio
-                        controls
-                        controlsList="nodownload"
-                        preload="none"
-                        style={{ width: '100%', maxWidth: 360 }}
-                        src={track.preview_url}
-                        onPlay={(e) => handlePlay(e.target, track)}
-                        onPause={(e) => handlePause(e.target)}
-                      />
-                    ) : (
-                      <div className="small text-muted">No preview</div>
-                    )}
+                      <Col md={5} className="text-end">
+                        {track.preview_url ? (
+                          <audio
+                            controls
+                            controlsList="nodownload"
+                            preload="none"
+                            style={{ width: '100%', maxWidth: 360 }}
+                            src={track.preview_url}
+                            onPlay={(e) => handlePlay(e.target, track)}
+                            onPause={(e) => handlePause(e.target)}
+                          />
+                        ) : (
+                          <div className="small text-muted">No preview</div>
+                        )}
 
-                    <div className="mt-2">
-                      <Button size="sm" variant="link" onClick={() => downloadTrackById(track.id, setToast)}>Download</Button>
-                    </div>
-                  </Col>
-                </Row>
-              </ListGroup.Item>
-            ))}
-          </ListGroup>
-        </Col>
+                        <div className="mt-2">
+                          <Button
+                            size="sm"
+                            variant="link"
+                            onClick={() => handleDownload(track.id)}
+                            disabled={isDownloading}
+                          >
+                            {isDownloading ? <Spinner animation="border" size="sm" /> : 'Download'}
+                          </Button>
+                        </div>
+                      </Col>
+                    </Row>
+                  </ListGroup.Item>
+                );
+              })}
+            </ListGroup>
+          </Col>
 
-        <Col lg={4}>
-          <div className="p-3 border rounded">
-            <h6>Playlist Info</h6>
-            <p className="small text-muted mb-2">
-              <strong>{tracks.length}</strong> {tracks.length === 1 ? 'track' : 'tracks'}
-            </p>
+          <Col lg={4}>
+            <div className="p-3 border rounded">
+              <h6>Playlist Info</h6>
+              <p className="small text-muted mb-2">
+                <strong>{tracks.length}</strong> {tracks.length === 1 ? 'track' : 'tracks'}
+              </p>
 
-            <Button variant="outline-secondary" size="sm" onClick={async () => {
-              setLoading(true);
-              try {
-                const res = await axios.get(`/fan/playlists/${id}`);
-                const p = res.data;
-                setPlaylist(p);
-                const mapped = Array.isArray(p.tracks)
-                  ? p.tracks.map(t => ({
-                      id: t.id || t.track_id,
-                      title: t.title,
-                      preview_url: resolveToBackend(t.preview_url || t.previewUrl || ''),
-                      duration: t.duration,
-                      artwork_url: resolveToBackend(t.artwork_url || t.preview_artwork || t.artworkUrl || ''),
-                      artist: t.artist
-                    }))
-                  : [];
-                setTracks(mapped);
-              } catch (err) {
-                console.error('Refresh failed', err);
-              } finally {
-                setLoading(false);
-              }
-            }}>
-              Refresh
-            </Button>
-          </div>
-        </Col>
-      </Row>
-    </Container>
+              <Button variant="outline-secondary" size="sm" onClick={async () => {
+                setLoading(true);
+                try {
+                  const res = await axios.get(`/fan/playlists/${id}`);
+                  const p = res.data;
+                  setPlaylist(p);
+                  const mapped = Array.isArray(p.tracks)
+                    ? p.tracks.map(t => ({
+                        id: t.id || t.track_id,
+                        title: t.title,
+                        preview_url: resolveToBackend(t.preview_url || t.previewUrl || ''),
+                        duration: t.duration,
+                        artwork_url: resolveToBackend(t.artwork_url || t.preview_artwork || t.artworkUrl || ''),
+                        artist: t.artist
+                      }))
+                    : [];
+                  setTracks(mapped);
+                } catch (err) {
+                  console.error('Refresh failed', err);
+                } finally {
+                  setLoading(false);
+                }
+              }}>
+                Refresh
+              </Button>
+            </div>
+          </Col>
+        </Row>
+      </Container>
+    </>
   );
 }
