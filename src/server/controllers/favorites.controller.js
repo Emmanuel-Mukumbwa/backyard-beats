@@ -4,7 +4,7 @@ const pool = require('../db').pool;
 function isAdminIncludeUnapproved(req) {
   return !!(req.user && req.user.role === 'admin' && req.query.include_unapproved === '1');
 }
-
+ 
 async function getUserRow(userId) {
   if (!userId) return null;
   const [rows] = await pool.query('SELECT id, username, banned, deleted_at FROM users WHERE id = ? LIMIT 1', [userId]);
