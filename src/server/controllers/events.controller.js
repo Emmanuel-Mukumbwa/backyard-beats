@@ -1,22 +1,5 @@
 // File: src/server/controllers/events.controller.js
 const pool = require('../db').pool;
-const path = require('path');
-
-const UPLOADS_PREFIX = process.env.UPLOADS_PREFIX || '/uploads';
-const EVENT_IMAGE_SUBDIR = path.posix.join('events', 'images');
-const UPLOAD_BASE = path.join(__dirname, '..', 'uploads');
-
-function publicUrlFromFilePath(filePath) {
-  if (!filePath) return null;
-  try {
-    const rel = path.relative(UPLOAD_BASE, filePath);
-    if (!rel) return null;
-    const urlPath = rel.split(path.sep).join('/');
-    return path.posix.join(UPLOADS_PREFIX, urlPath);
-  } catch (err) {
-    return null;
-  }
-}
 
 function normalizeEventRow(row) {
   return {
@@ -238,7 +221,8 @@ exports.createEvent = async (req, res, next) => {
     }
 
     const imageFile = req.file;
-    const imageUrl = imageFile ? publicUrlFromFilePath(imageFile.path) : null;
+    // Cloudinary gives us the full URL directly
+    const imageUrl = imageFile ? imageFile.path : null;
 
     const title = req.body.title ? String(req.body.title).trim() : null;
     const description = typeof req.body.description !== 'undefined' ? String(req.body.description) : null;
@@ -320,7 +304,7 @@ exports.updateEvent = async (req, res, next) => {
     }
 
     const imageFile = req.file;
-    const imageUrl = imageFile ? publicUrlFromFilePath(imageFile.path) : null;
+    const imageUrl = imageFile ? imageFile.path : null;
 
     const updates = [];
     const vals = [];
@@ -361,7 +345,6 @@ exports.updateEvent = async (req, res, next) => {
       }
     } catch (e) {
       // Non-fatal: log and continue; we still return the updated row below.
-      // If you have a logger, replace console.error with your logger.
       console.error('Failed to reset approval state after edit:', e);
     }
 
