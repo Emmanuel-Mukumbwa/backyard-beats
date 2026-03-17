@@ -5,12 +5,27 @@ import axios from '../api/axiosConfig';
 import LoadingSpinner from './LoadingSpinner';
 import ToastMessage from './ToastMessage';
 
-export default function AddEventModal({ show, onHide, onSaved, editing = null, districts = [] }) {
+export default function AddEventModal({
+  show,
+  onHide,
+  onSaved,
+  editing = null,
+  districts = [],
+  adminMode = false,
+  artists = [],
+}) {
   // Split title: eventName + organizer (optional)
   const [eventName, setEventName] = useState('');
   const [organizer, setOrganizer] = useState('');
+  const [selectedArtistId, setSelectedArtistId] = useState(''); // for admin mode
 
+  // New split description fields
+  const [whatToExpect, setWhatToExpect] = useState('');
+  const [lineup, setLineup] = useState('');
+  const [ageRestriction, setAgeRestriction] = useState('');
+  // For editing we still keep a combined description field
   const [description, setDescription] = useState('');
+
   const [eventDate, setEventDate] = useState('');
   const [districtId, setDistrictId] = useState('');
   const [venue, setVenue] = useState('');
@@ -19,19 +34,14 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
   const [image, setImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const previewBlobRef = useRef(null);
-
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-
-  // toast for non-blocking messages
   const [toast, setToast] = useState({ show: false, message: '', variant: 'success' });
 
-  // districts handling
   const [localDistricts, setLocalDistricts] = useState([]);
   const [districtsLoading, setDistrictsLoading] = useState(false);
   const [districtsError, setDistrictsError] = useState(null);
 
-  // helper to build backend url for relative image paths
   const resolveBackendUrl = (raw) => {
     try {
       const base = (axios && axios.defaults && axios.defaults.baseURL) || process.env.REACT_APP_API_URL || 'http://localhost:3001';
@@ -46,7 +56,6 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
     }
   };
 
-  // normalize districts prop (support ['Name','Name'] or [{id,name}, ...])
   const normalizePropDistricts = (arr) => {
     if (!Array.isArray(arr)) return [];
     return arr
@@ -55,7 +64,6 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
         if (typeof d === 'string' || typeof d === 'number') {
           return { id: String(i + 1), name: String(d) };
         }
-        // assume object
         const idCandidate = d.id ?? d.value ?? d.pk ?? d.district_id ?? d.key ?? d.ID ?? d.pk_id;
         const nameCandidate = d.name ?? d.title ?? d.label ?? d.district_name ?? d.district ?? d.display_name;
         const id = idCandidate != null ? String(idCandidate) : String(i + 1);
@@ -65,7 +73,6 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
       .filter(Boolean);
   };
 
-  // load districts if parent didn't supply them
   useEffect(() => {
     const provided = normalizePropDistricts(districts || []);
     if (provided.length > 0) {
@@ -78,7 +85,6 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
     const ctrl = new AbortController();
     setDistrictsLoading(true);
     setDistrictsError(null);
-
     axios
       .get('/districts', { signal: ctrl.signal })
       .then((res) => {
@@ -103,19 +109,12 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
         if (!mounted) return;
         setDistrictsLoading(false);
       });
-
     return () => {
       mounted = false;
       ctrl.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(districts)]);
+  }, [districts]);
 
-  // Helpers: format and parse title
-  // Store `title` in DB as either:
-  // - "Event Name — Organizer"
-  // - "Event Name - Organizer"
-  // - or just "Event Name"
   const formatTitle = (name, org) => {
     const n = (name || '').trim();
     const o = (org || '').trim();
@@ -126,9 +125,6 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
   const parseTitle = (raw = '') => {
     if (!raw) return { name: '', organizer: '' };
     let t = String(raw).trim();
-
-    // accept separators —, -, | (common)
-    // prefer the long em-dash or fancy dash first
     const separators = [/—/, / - /, /–/, /\|/, / -/ , /-/];
     for (const sep of separators) {
       if (sep.test(t)) {
@@ -138,21 +134,20 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
         return { name, organizer };
       }
     }
-    // fallback: whole string is event name
     return { name: t, organizer: '' };
   };
 
   // set form fields from editing when modal opens
   useEffect(() => {
     if (editing) {
-      // parse title into eventName + organizer
       const rawTitle = editing.title || editing.name || editing.event_name || '';
       const parsed = parseTitle(rawTitle);
       setEventName(parsed.name || '');
       setOrganizer(parsed.organizer || '');
 
+      // For editing, we keep the combined description field
       setDescription(editing.description || editing.desc || '');
-      // date -> yyyy-mm-dd (safe split on T)
+
       if (editing.event_date) {
         setEventDate(String(editing.event_date).split('T')[0]);
       } else if (editing.eventDate) {
@@ -161,7 +156,6 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
         setEventDate('');
       }
 
-      // determine district id from several possible shapes
       let dId = '';
       if (editing.district_id != null) dId = editing.district_id;
       else if (editing.districtId != null) dId = editing.districtId;
@@ -173,34 +167,38 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
       setAddress(editing.address || '');
       setTicketUrl(editing.ticket_url || editing.ticketUrl || '');
 
-      const existingImage =
-        editing.image_url || editing.image || editing.imagePath || editing.image_path || editing.photo_url || null;
+      const existingImage = editing.image_url || editing.image || editing.imagePath || editing.image_path || editing.photo_url || null;
       setImagePreview(existingImage ? resolveBackendUrl(existingImage) : null);
+
+      if (adminMode && editing.artist_id) {
+        setSelectedArtistId(String(editing.artist_id));
+      }
     } else {
-      // reset
+      // Reset all fields for new event
       setEventName('');
       setOrganizer('');
       setDescription('');
+      setWhatToExpect('');
+      setLineup('');
+      setAgeRestriction('');
       setEventDate('');
       setDistrictId('');
       setVenue('');
       setAddress('');
       setTicketUrl('');
       setImagePreview(null);
+      setSelectedArtistId('');
     }
     setImage(null);
     setError(null);
 
-    // cleanup blob preview on unmount/hide
     return () => {
       if (previewBlobRef.current && typeof previewBlobRef.current === 'string' && previewBlobRef.current.indexOf('blob:') === 0) {
-        try {
-          URL.revokeObjectURL(previewBlobRef.current);
-        } catch (e) {}
+        try { URL.revokeObjectURL(previewBlobRef.current); } catch (e) {}
         previewBlobRef.current = null;
       }
     };
-  }, [editing, show]); // intentionally depend on editing and modal visibility
+  }, [editing, show, adminMode]);
 
   const handleImageChange = (e) => {
     const f = e.target.files && e.target.files[0] ? e.target.files[0] : null;
@@ -210,20 +208,14 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
       setImagePreview(existingImage);
       return;
     }
-
     if (!f.type || f.type.indexOf('image/') !== 0) {
       setError('Selected file is not an image');
       return;
     }
-
-    // revoke any previous blob URL
     if (previewBlobRef.current && previewBlobRef.current.indexOf('blob:') === 0) {
-      try {
-        URL.revokeObjectURL(previewBlobRef.current);
-      } catch (e) {}
+      try { URL.revokeObjectURL(previewBlobRef.current); } catch (e) {}
       previewBlobRef.current = null;
     }
-
     const previewUrl = URL.createObjectURL(f);
     previewBlobRef.current = previewUrl;
     setImage(f);
@@ -236,7 +228,6 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
     setSaving(true);
     setError(null);
 
-    // Basic validation
     if (!eventName.trim()) {
       setError('Please provide an event name.');
       setSaving(false);
@@ -252,6 +243,25 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
       setSaving(false);
       return;
     }
+    if (adminMode && !selectedArtistId) {
+      setError('Please select an artist.');
+      setSaving(false);
+      return;
+    }
+
+    // Build final description
+    let finalDescription = '';
+    if (editing) {
+      // When editing, use the combined description field
+      finalDescription = description.trim();
+    } else {
+      // For new event, combine the split fields
+      const parts = [];
+      if (whatToExpect.trim()) parts.push(`What to expect: ${whatToExpect.trim()}`);
+      if (lineup.trim()) parts.push(`Lineup: ${lineup.trim()}`);
+      if (ageRestriction.trim()) parts.push(`Age restriction: ${ageRestriction.trim()}`);
+      finalDescription = parts.join('\n\n');
+    }
 
     const finalTitle = formatTitle(eventName, organizer);
     if (finalTitle.length > 255) {
@@ -262,14 +272,17 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
 
     try {
       const fd = new FormData();
-      fd.append('title', finalTitle); // still single title column in DB
-      fd.append('description', description || '');
+      fd.append('title', finalTitle);
+      fd.append('description', finalDescription || '');
       fd.append('event_date', eventDate || '');
       fd.append('district_id', districtId || '');
       fd.append('venue', venue || '');
       fd.append('address', address || '');
       fd.append('ticket_url', ticketUrl || '');
       if (image) fd.append('image', image);
+      if (adminMode && selectedArtistId) {
+        fd.append('artist_id', selectedArtistId);
+      }
 
       if (editing && editing.id) {
         const res = await axios.put(`/events/${editing.id}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
@@ -299,14 +312,30 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
         delay={3500}
         position="top-end"
       />
-
-      <Modal show={show} onHide={onHide} centered>
+      <Modal show={show} onHide={onHide} centered size="lg">
         <Form onSubmit={handleSubmit}>
           <Modal.Header closeButton>
-            <Modal.Title>{editing ? 'Edit Event' : 'Add Event'}</Modal.Title>
+            <Modal.Title>{editing ? 'Edit Event' : (adminMode ? 'Add Event (Admin)' : 'Add Event')}</Modal.Title>
           </Modal.Header>
           <Modal.Body>
             {error && <div className="alert alert-danger">{error}</div>}
+
+            {/* Admin artist selector */}
+            {adminMode && !editing && (
+              <Form.Group className="mb-3">
+                <Form.Label>Select Artist <span className="text-danger">*</span></Form.Label>
+                <Form.Select
+                  value={selectedArtistId}
+                  onChange={(e) => setSelectedArtistId(e.target.value)}
+                  required
+                >
+                  <option value="">Choose artist...</option>
+                  {artists.map(a => (
+                    <option key={a.id} value={a.id}>{a.display_name}</option>
+                  ))}
+                </Form.Select>
+              </Form.Group>
+            )}
 
             <Row>
               <Col md={8}>
@@ -320,7 +349,6 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
                   />
                 </Form.Group>
               </Col>
-
               <Col md={4}>
                 <Form.Group className="mb-3">
                   <Form.Label>Organizer (optional)</Form.Label>
@@ -333,16 +361,49 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
               </Col>
             </Row>
 
-            <Form.Group className="mb-3">
-              <Form.Label>Description</Form.Label>
-              <Form.Control
-                as="textarea"
-                rows={3}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Short description — what to expect, lineup, age restrictions, etc."
-              />
-            </Form.Group>
+            {editing ? (
+              <Form.Group className="mb-3">
+                <Form.Label>Description</Form.Label>
+                <Form.Control
+                  as="textarea"
+                  rows={3}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Event description (combined text)"
+                />
+              </Form.Group>
+            ) : (
+              <>
+                <Form.Group className="mb-3">
+                  <Form.Label>What to Expect</Form.Label>
+                  <Form.Control
+                    as="textarea"
+                    rows={2}
+                    value={whatToExpect}
+                    onChange={(e) => setWhatToExpect(e.target.value)}
+                    placeholder="e.g., Live DJ sets, food stalls, family-friendly activities"
+                  />
+                </Form.Group>
+                <Form.Group className="mb-3">
+                  <Form.Label>Lineup</Form.Label>
+                  <Form.Control
+                    as="textarea"
+                    rows={2}
+                    value={lineup}
+                    onChange={(e) => setLineup(e.target.value)}
+                    placeholder="e.g., Artist A, Artist B, DJ C"
+                  />
+                </Form.Group>
+                <Form.Group className="mb-3">
+                  <Form.Label>Age Restriction</Form.Label>
+                  <Form.Control
+                    value={ageRestriction}
+                    onChange={(e) => setAgeRestriction(e.target.value)}
+                    placeholder="e.g., 18+, All ages, etc."
+                  />
+                </Form.Group>
+              </>
+            )}
 
             <Row>
               <Col md={4}>
@@ -351,7 +412,6 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
                   <Form.Control type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} required />
                 </Form.Group>
               </Col>
-
               <Col md={4}>
                 <Form.Group className="mb-3">
                   <Form.Label>District</Form.Label>
@@ -366,7 +426,6 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
                   {districtsError && <div className="small text-danger mt-1">{districtsError}</div>}
                 </Form.Group>
               </Col>
-
               <Col md={4}>
                 <Form.Group className="mb-3">
                   <Form.Label>Venue</Form.Label>
@@ -396,9 +455,7 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
                     style={{ width: 160, height: 160, objectFit: 'cover', border: '1px solid #e9ecef' }}
                     onError={(ev) => {
                       ev.currentTarget.onerror = null;
-                      ev.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                        eventName || 'Event'
-                      )}&background=eee&color=777&size=128`;
+                      ev.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(eventName || 'Event')}&background=eee&color=777&size=128`;
                     }}
                     alt="Event preview"
                   />
@@ -409,11 +466,8 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
                         variant="outline-secondary"
                         size="sm"
                         onClick={() => {
-                          // remove selection, restore existing remote image if any
                           if (previewBlobRef.current && previewBlobRef.current.indexOf('blob:') === 0) {
-                            try {
-                              URL.revokeObjectURL(previewBlobRef.current);
-                            } catch (e) {}
+                            try { URL.revokeObjectURL(previewBlobRef.current); } catch (e) {}
                             previewBlobRef.current = null;
                           }
                           setImage(null);
@@ -423,16 +477,12 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
                       >
                         Remove selection
                       </Button>
-
                       <Button
                         variant="outline-danger"
                         size="sm"
                         onClick={() => {
-                          // clear all image fields and preview
                           if (previewBlobRef.current && previewBlobRef.current.indexOf('blob:') === 0) {
-                            try {
-                              URL.revokeObjectURL(previewBlobRef.current);
-                            } catch (e) {}
+                            try { URL.revokeObjectURL(previewBlobRef.current); } catch (e) {}
                             previewBlobRef.current = null;
                           }
                           setImage(null);
@@ -447,21 +497,14 @@ export default function AddEventModal({ show, onHide, onSaved, editing = null, d
               )}
             </Form.Group>
           </Modal.Body>
-
           <Modal.Footer>
-            <Button variant="secondary" onClick={onHide} disabled={saving}>
-              Cancel
-            </Button>
+            <Button variant="secondary" onClick={onHide} disabled={saving}>Cancel</Button>
             <Button type="submit" variant="success" disabled={saving}>
               {saving ? (
                 <>
                   <LoadingSpinner inline size="sm" ariaLabel="Saving" /> <span className="ms-2">Saving...</span>
                 </>
-              ) : editing ? (
-                'Update Event'
-              ) : (
-                'Add Event'
-              )}
+              ) : editing ? 'Update Event' : 'Add Event'}
             </Button>
           </Modal.Footer>
         </Form>
