@@ -1,10 +1,10 @@
-// src/components/Hero.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { Row, Col, Button } from 'react-bootstrap';
 import { Link } from 'react-router-dom';
+import { AuthContext } from '../context/AuthContext';
 
 export default function Hero() {
-
+  const { user } = useContext(AuthContext);
   const [greeting, setGreeting] = useState({ text: '', icon: '' });
   const [imageHeight, setImageHeight] = useState(360);
 
@@ -19,22 +19,23 @@ export default function Hero() {
   useEffect(() => {
     function updateHeight() {
       const w = window.innerWidth;
-
-      if (w < 576) setImageHeight(220);     // phones
-      else if (w < 768) setImageHeight(260); // small tablets
-      else if (w < 992) setImageHeight(300); // tablets
-      else setImageHeight(360);              // desktop
+      if (w < 576) setImageHeight(220);
+      else if (w < 768) setImageHeight(260);
+      else if (w < 992) setImageHeight(300);
+      else setImageHeight(360);
     }
-
     updateHeight();
     window.addEventListener('resize', updateHeight);
     return () => window.removeEventListener('resize', updateHeight);
   }, []);
 
+  // Build personalized greeting
+  const displayName = user?.username || user?.displayName || '';
+  const greetingText = displayName ? `${greeting.text}, ${displayName}!` : greeting.text;
+
   return (
     <section className="bb-hero mb-4" aria-labelledby="hero-heading">
       <Row className="align-items-center">
-
         {/* Image column */}
         <Col xs={12} md={6} className="px-3 px-md-4 mb-3 mb-md-0">
           <div
@@ -46,13 +47,10 @@ export default function Hero() {
               height: imageHeight,
               backgroundSize: "cover",
               backgroundPosition: "center",
-
-              /* New modern asymmetric radius */
               borderTopLeftRadius: "18px",
               borderTopRightRadius: "18px",
               borderBottomLeftRadius: "60px",
               borderBottomRightRadius: "18px",
-
               boxShadow: "0 12px 30px rgba(0,0,0,0.15)",
               transition: "transform 0.5s ease"
             }}
@@ -61,14 +59,12 @@ export default function Hero() {
 
         {/* Text column */}
         <Col xs={12} md={6} className="p-4">
-
           <div className="hero-content">
-
             {/* Greeting */}
             <h5 className="mb-2 text-muted">
               <span className="me-2">{greeting.icon}</span>
-              {greeting.text}
-            </h5> 
+              {greetingText}
+            </h5>
 
             <h1 id="hero-heading" className="hero-title mb-3">
               Welcome to BackyardBeats — Malawi’s home for local music
@@ -93,9 +89,7 @@ export default function Hero() {
                 Browse Events
               </Button>
             </div>
-
           </div>
-
         </Col>
       </Row>
     </section>
