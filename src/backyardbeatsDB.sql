@@ -504,3 +504,41 @@ VALUES (
 NOW(),
 NOW()
 );
+
+-- BackyardBeats database – recommended indexes for performance
+
+-- Users table
+CREATE INDEX idx_users_role ON users(role);
+CREATE INDEX idx_users_banned ON users(banned);
+-- (district_id already indexed via foreign key)
+
+-- Artists table
+CREATE INDEX idx_artists_avg_rating ON artists(avg_rating);
+CREATE INDEX idx_artists_follower_count ON artists(follower_count);
+
+-- Tracks table
+CREATE INDEX idx_tracks_genre ON tracks(genre);
+CREATE INDEX idx_tracks_release_date ON tracks(release_date);
+CREATE INDEX idx_tracks_created_at ON tracks(created_at);
+-- Composite indexes for common queries
+CREATE INDEX idx_tracks_artist_approved ON tracks(artist_id, is_approved);
+CREATE INDEX idx_tracks_approved_release ON tracks(is_approved, release_date);
+CREATE INDEX idx_tracks_approved_created ON tracks(is_approved, created_at);
+
+-- Events table
+CREATE INDEX idx_events_event_date ON events(event_date);
+CREATE INDEX idx_events_artist_date ON events(artist_id, event_date);
+CREATE INDEX idx_events_approved_date ON events(is_approved, event_date);
+
+-- Ratings table – index on user_id (unique index starts with artist_id)
+CREATE INDEX idx_ratings_user_id ON ratings(user_id);
+
+-- Playlist_tracks table – index on track_id alone (unique index starts with playlist_id)
+CREATE INDEX idx_playlist_tracks_track_id ON playlist_tracks(track_id);
+
+-- Favorites table – index on artist_id (unique index starts with user_id)
+CREATE INDEX idx_favorites_artist_id ON favorites(artist_id);
+
+-- Support tickets table
+CREATE INDEX idx_support_tickets_assignee ON support_tickets(assignee_id);
+CREATE INDEX idx_support_tickets_created ON support_tickets(created_at);
