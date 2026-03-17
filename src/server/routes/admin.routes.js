@@ -6,7 +6,7 @@ const router = express.Router();
 const admin = require('../controllers/admin');
 
 // helper: check that a handler exists and is a function
-function assertHandler(name) {
+function assertHandler(name) { 
   const h = admin[name];
   if (typeof h !== 'function') {
     // Helpful error: include available keys to help debugging
