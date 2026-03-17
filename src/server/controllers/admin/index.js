@@ -58,3 +58,5 @@ exports.createPrivacy = require('./privacy.controller').createPrivacy;
 exports.updatePrivacy = require('./privacy.controller').updatePrivacy;
 exports.deletePrivacy = require('./privacy.controller').deletePrivacy;
 exports.getActivePrivacy = require('./privacy.controller').getActivePrivacy;
+
+exports.listArtists = require('./listArtists.controller').listArtists;
