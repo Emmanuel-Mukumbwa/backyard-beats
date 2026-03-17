@@ -1,13 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Tabs, Tab, Alert, Modal, Form, Button } from 'react-bootstrap';
+import { FaPlus } from 'react-icons/fa';
 import axios from '../api/axiosConfig';
 
-import AnalyticsPanel from '../components/admin/AnalyticsPanel'; 
+import AnalyticsPanel from '../components/admin/AnalyticsPanel';
 import UsersTable from '../components/admin/UsersTable';
 import PendingApprovals from '../components/admin/PendingApprovals';
 import RatingsModeration from '../components/admin/RatingsModeration';
 import SupportPanel from '../components/admin/SupportPanel';
-import SettingsPanel from '../components/admin/SettingsPanel'; 
+import SettingsPanel from '../components/admin/SettingsPanel';
+import AddTrackModal from '../components/AddTrackModal';
+import AddEventModal from '../components/AddEventModal';
 
 import ToastMessage from '../components/ToastMessage';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -32,10 +35,14 @@ export default function AdminDashboard() {
     maintenanceMode: false
   });
 
+  const [showAdminTrackModal, setShowAdminTrackModal] = useState(false);
+  const [showAdminEventModal, setShowAdminEventModal] = useState(false);
+  const [artistsList, setArtistsList] = useState([]);
+  const [metaGenres, setMetaGenres] = useState([]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  /* modals */
   const [showUserModal, setShowUserModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -46,7 +53,6 @@ export default function AdminDashboard() {
     banned: false
   });
 
-  /* confirm modal state (reusable) */
   const [confirmState, setConfirmState] = useState({
     show: false,
     title: '',
@@ -56,10 +62,8 @@ export default function AdminDashboard() {
     variant: 'danger'
   });
 
-  /* toast state (renamed to avoid accidental shadowing) */
   const [globalToast, setGlobalToast] = useState({ show: false, message: '', variant: 'success', delay: 4000, title: '' });
 
-  /* persisted active tab */
   const [activeTab, setActiveTab] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -72,29 +76,18 @@ export default function AdminDashboard() {
   const toastTimerRef = useRef(null);
 
   useEffect(() => {
-    // keep saved tab in localStorage
     try { localStorage.setItem(STORAGE_KEY, activeTab); } catch (e) { /* ignore */ }
   }, [activeTab]);
 
-  useEffect(() => {
-    loadDashboardData();
-    fetchUsers();
-    // cleanup toast timer on unmount
-    return () => {
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /* helper to show toast using shared ToastMessage */
-  const showToast = (message, variant = 'success', delay = 4000, title = '') => {
+  /* ---------------- TOAST HELPER ---------------- */
+  const showToast = useCallback((message, variant = 'success', delay = 4000, title = '') => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setGlobalToast({ show: true, message, variant, delay, title });
     toastTimerRef.current = setTimeout(() => setGlobalToast(t => ({ ...t, show: false })), delay + 200);
-  };
+  }, []);
 
-  /* ---------------- LOAD DATA ---------------- */
-  async function loadDashboardData() {
+  /* ---------------- DATA LOADING ---------------- */
+  const loadDashboardData = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -109,7 +102,6 @@ export default function AdminDashboard() {
 
     try {
       const results = await Promise.allSettled(endpoints.map(e => axios.get(e.url)));
-
       const failed = [];
 
       results.forEach((res, idx) => {
@@ -157,10 +149,9 @@ export default function AdminDashboard() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [showToast]);
 
-  /* ---------------- USERS ---------------- */
-  const fetchUsers = async (page = 1, limit = 25, q = '') => {
+  const fetchUsers = useCallback(async (page = 1, limit = 25, q = '') => {
     try {
       const res = await axios.get('/admin/users', { params: { page, limit, q } });
       setUsers(res.data.users || []);
@@ -171,8 +162,40 @@ export default function AdminDashboard() {
       setError(msg);
       showToast(msg, 'danger');
     }
-  };
+  }, [showToast]);
 
+  const fetchArtistsAndGenres = useCallback(async () => {
+    try {
+      const [artistsRes, genresRes] = await Promise.allSettled([
+        axios.get('/admin/artists?all=true'),
+        axios.get('/meta/genres')
+      ]);
+      if (artistsRes.status === 'fulfilled') {
+        setArtistsList(artistsRes.value.data.artists || []);
+      } else {
+        console.error('Failed to load artists', artistsRes.reason);
+      }
+      if (genresRes.status === 'fulfilled') {
+        setMetaGenres(Array.isArray(genresRes.value.data) ? genresRes.value.data : []);
+      } else {
+        console.error('Failed to load genres', genresRes.reason);
+      }
+    } catch (err) {
+      console.error('fetchArtistsAndGenres error', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadDashboardData();
+    fetchUsers();
+    fetchArtistsAndGenres();
+    // cleanup toast timer
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, [loadDashboardData, fetchUsers, fetchArtistsAndGenres]);
+
+  /* ---------------- USER ACTIONS ---------------- */
   const handleBanToggle = async (user, ban) => {
     try {
       await axios.post(`/admin/users/${user.id}/ban`, { ban });
@@ -186,7 +209,6 @@ export default function AdminDashboard() {
     }
   };
 
-  /* soft delete uses confirm modal */
   const promptSoftDelete = (user) => {
     setConfirmState({
       show: true,
@@ -265,9 +287,6 @@ export default function AdminDashboard() {
     }
   };
 
-  /* ---------------- ARTIST / TRACK / EVENT approvals are handled inside PendingApprovals component via passed props (which call API directly) ---------------- */
-
-  /* ---------------- RATINGS (delete via controller) ---------------- */
   const moderateRating = async (id) => {
     try {
       await axios.delete(`/admin/ratings/${id}`);
@@ -281,13 +300,11 @@ export default function AdminDashboard() {
     }
   };
 
-  /* ---------------- SETTINGS (handled by SettingsPanel + parent modal) ---------------- */
   const handleSettingsSubmit = async (e) => {
     e.preventDefault();
     try {
       await axios.post('/admin/settings', settings);
       setShowSettingsModal(false);
-      // reload settings
       const res = await axios.get('/admin/settings');
       if (res?.data?.settings) setSettings(res.data.settings);
       showToast('Settings saved', 'success');
@@ -299,7 +316,6 @@ export default function AdminDashboard() {
     }
   };
 
-  /* ---------------- RENDER ---------------- */
   if (loading) {
     return (
       <div className="d-flex justify-content-center align-items-center py-5">
@@ -310,7 +326,18 @@ export default function AdminDashboard() {
 
   return (
     <div>
-      <h2 className="mb-4">Admin Dashboard</h2>
+      {/* Header with title and admin action buttons */}
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <h2>Admin Dashboard</h2>
+        <div>
+          <Button variant="success" className="me-2" onClick={() => setShowAdminTrackModal(true)}>
+            <FaPlus className="me-1" /> Add Track
+          </Button>
+          <Button variant="outline-success" onClick={() => setShowAdminEventModal(true)}>
+            <FaPlus className="me-1" /> Add Event
+          </Button>
+        </div>
+      </div>
 
       <ToastMessage
         show={globalToast.show}
@@ -336,13 +363,12 @@ export default function AdminDashboard() {
         <Tab eventKey="analytics" title="Analytics">
           <AnalyticsPanel analytics={analytics} />
         </Tab>
-
         <Tab eventKey="users" title="User Management">
           <UsersTable
             users={users}
             onEdit={(u) => handleUserAction(u, 'edit')}
             onToggleBan={(u, ban) => handleBanToggle(u, ban)}
-            onSoftDelete={(u) => handleSoftDeleteConfirmed(u)} // direct delete action (confirm handled via prompt)
+            onSoftDelete={(u) => handleSoftDeleteConfirmed(u)}
             onRestore={(u) => handleRestore(u)}
             onAction={(u, action) => handleUserAction(u, action)}
             pagination={{
@@ -352,7 +378,6 @@ export default function AdminDashboard() {
             }}
           />
         </Tab>
-
         <Tab eventKey="artists" title="Artist Approval">
           <PendingApprovals
             items={pendingArtists}
@@ -360,7 +385,6 @@ export default function AdminDashboard() {
             onDone={() => loadDashboardData()}
           />
         </Tab>
-
         <Tab eventKey="tracks" title="Track Approval">
           <PendingApprovals
             items={pendingTracks}
@@ -368,7 +392,6 @@ export default function AdminDashboard() {
             onDone={() => loadDashboardData()}
           />
         </Tab>
-
         <Tab eventKey="events" title="Event Approval">
           <PendingApprovals
             items={pendingEvents}
@@ -376,21 +399,42 @@ export default function AdminDashboard() {
             onDone={() => loadDashboardData()}
           />
         </Tab>
-
         <Tab eventKey="moderation" title="Moderation">
           <RatingsModeration ratings={ratings} onDelete={moderateRating} />
         </Tab>
-       
         <Tab eventKey="support" title="Support">
           <SupportPanel />
         </Tab>
-
         <Tab eventKey="settings" title="System Settings">
           <SettingsPanel settings={settings} onEdit={() => setShowSettingsModal(true)} />
         </Tab>
       </Tabs>
 
-      {/* ---------------- USER EDIT MODAL ---------------- */}
+      {/* Admin modals for adding tracks/events */}
+      <AddTrackModal
+        show={showAdminTrackModal}
+        onHide={() => setShowAdminTrackModal(false)}
+        onSaved={() => {
+          loadDashboardData();
+          setShowAdminTrackModal(false);
+        }}
+        adminMode={true}
+        artists={artistsList}
+        genres={metaGenres.map(g => g.name)}
+      />
+      <AddEventModal
+        show={showAdminEventModal}
+        onHide={() => setShowAdminEventModal(false)}
+        onSaved={() => {
+          loadDashboardData();
+          setShowAdminEventModal(false);
+        }}
+        adminMode={true}
+        artists={artistsList}
+        districts={[]}
+      />
+
+      {/* User edit modal */}
       <Modal show={showUserModal} onHide={() => setShowUserModal(false)}>
         <Modal.Header closeButton>
           <Modal.Title>Edit User</Modal.Title>
@@ -401,12 +445,10 @@ export default function AdminDashboard() {
               <Form.Label>Display Name</Form.Label>
               <Form.Control value={userForm.displayName} onChange={e => setUserForm({ ...userForm, displayName: e.target.value })} />
             </Form.Group>
-
             <Form.Group className="mb-3">
               <Form.Label>Email</Form.Label>
               <Form.Control value={userForm.email} onChange={e => setUserForm({ ...userForm, email: e.target.value })} />
             </Form.Group>
-
             <Form.Group className="mb-3">
               <Form.Label>Role</Form.Label>
               <Form.Select value={userForm.role} onChange={e => setUserForm({ ...userForm, role: e.target.value })}>
@@ -415,20 +457,16 @@ export default function AdminDashboard() {
                 <option value="admin">Admin</option>
               </Form.Select>
             </Form.Group>
-
             <Form.Check type="checkbox" label="Banned" checked={userForm.banned} onChange={e => setUserForm({ ...userForm, banned: e.target.checked })} />
           </Modal.Body>
           <Modal.Footer>
             <Button variant="secondary" onClick={() => setShowUserModal(false)}>Cancel</Button>
-            <Button type="submit">
-              <span className="me-2">{/* inline spinner for UX */}</span>
-              Save
-            </Button>
+            <Button type="submit">Save</Button>
           </Modal.Footer>
         </Form>
       </Modal>
 
-      {/* ---------------- SETTINGS MODAL ---------------- */}
+      {/* Settings modal */}
       <Modal show={showSettingsModal} onHide={() => setShowSettingsModal(false)}>
         <Modal.Header closeButton>
           <Modal.Title>System Settings</Modal.Title>
@@ -439,7 +477,6 @@ export default function AdminDashboard() {
               <Form.Label>Site Name</Form.Label>
               <Form.Control value={settings.siteName} onChange={e => setSettings({ ...settings, siteName: e.target.value })} />
             </Form.Group>
-
             <Form.Check type="checkbox" label="Maintenance Mode" checked={settings.maintenanceMode} onChange={e => setSettings({ ...settings, maintenanceMode: e.target.checked })} />
           </Modal.Body>
           <Modal.Footer>
@@ -449,7 +486,7 @@ export default function AdminDashboard() {
         </Form>
       </Modal>
 
-      {/* Generic Confirm Modal (reused) */}
+      {/* Confirm modal */}
       <ConfirmModal
         show={confirmState.show}
         onHide={() => setConfirmState(prev => ({ ...prev, show: false }))}
@@ -458,7 +495,6 @@ export default function AdminDashboard() {
         confirmText={confirmState.confirmText}
         variant={confirmState.variant}
         onConfirm={() => {
-          // call provided callback (if any) and close is handled inside ConfirmModal via onHide chain
           try {
             confirmState.onConfirm && confirmState.onConfirm();
           } catch (err) {
