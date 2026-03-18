@@ -1,9 +1,11 @@
+//src/components/NewReleases.js
 import React, { useEffect, useState, useRef, useContext } from 'react';
 import axios from '../api/axiosConfig';
 import { ListGroup, Spinner, Image, Button } from 'react-bootstrap';
 import { FaDownload, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 import { AuthContext } from '../context/AuthContext';
-import ToastMessage from './ToastMessage'; // added for toast
+import ToastMessage from './ToastMessage';
+import { useNavigate } from 'react-router-dom';
 
 /** sanitize file name for client (small helper) */
 function sanitizeFilename(s) {
@@ -91,6 +93,7 @@ export default function NewReleases({ limit = 6, onSelect = () => {} }) {
   const playingRef = useRef(null);
   const mountedRef = useRef(true);
   const { user, artist: myArtist } = useContext(AuthContext);
+  const navigate = useNavigate();
 
   // Toast and downloading state
   const [toast, setToast] = useState({ show: false, message: '', variant: 'info' });
@@ -134,6 +137,27 @@ export default function NewReleases({ limit = 6, onSelect = () => {} }) {
   }
 
   const handleDownload = (trackId) => {
+    // If not logged in, show persistent toast with Login button
+    if (!user || !user.id) {
+      setToast({
+        show: true,
+        message: (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div>Please log in to download tracks.</div>
+            <div>
+              <Button size="sm" variant="light" onClick={() => { setToast(t => ({ ...t, show: false })); navigate('/login'); }}>
+                Login
+              </Button>
+            </div>
+          </div>
+        ),
+        variant: 'success',
+        autohide: false,
+        delay: 10000
+      });
+      return;
+    }
+
     setDownloadingId(trackId);
     setToast({ show: true, message: 'Preparing your download...', variant: 'info' });
     downloadTrackById(trackId, setToast, setDownloadingId);
