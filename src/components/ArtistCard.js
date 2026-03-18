@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+// src/components/ArtistCard.js
+import React, { useEffect, useState, useMemo } from 'react';
 import { Card, Button, Badge } from 'react-bootstrap';
 import { Link } from 'react-router-dom';
 import axios from '../api/axiosConfig';
@@ -11,7 +12,7 @@ import { FaStar, FaMapMarkerAlt } from 'react-icons/fa';
  * Images are set to object-fit: contain so they DO NOT crop/zoom/stretch.
  */
 export default function ArtistCard({ artist = {}, selected }) {
-  const cardClass = selected ? 'mb-3 shadow-sm border-success' : 'mb-3 shadow-sm';
+  const cardClass = `artist-card ${selected ? 'mb-3 shadow-sm border-success' : 'mb-3 shadow-sm'}`;
 
   // Helpers
   const backendBase = (() => {
@@ -39,7 +40,7 @@ export default function ArtistCard({ artist = {}, selected }) {
   const name = artist.displayName || artist.display_name || artist.username || 'Unknown Artist';
 
   // Genres / moods
-  const genreList = (() => {
+  const genreList = useMemo(() => {
     if (!artist) return [];
     if (Array.isArray(artist.genres) && artist.genres.length) {
       return artist.genres.map(g => (typeof g === 'object' ? (g.name || String(g.id)) : String(g)));
@@ -53,16 +54,16 @@ export default function ArtistCard({ artist = {}, selected }) {
       return Array.isArray(artist.genre_list) ? artist.genre_list.map(String) : [String(artist.genre_list)];
     }
     return [];
-  })();
+  }, [artist]);
 
-  const moodList = (() => {
+  const moodList = useMemo(() => {
     if (!artist) return [];
     if (Array.isArray(artist.moods) && artist.moods.length) {
       return artist.moods.map(m => (typeof m === 'object' ? (m.name || String(m.id)) : String(m)));
     }
     if (artist.mood) return [String(artist.mood)];
     return [];
-  })();
+  }, [artist]);
 
   // district resolution (artist.district, artist.district_name or user.district)
   const district = artist.district || artist.district_name || (artist.user && (artist.user.district || artist.user.district_name)) || '';
@@ -79,7 +80,6 @@ export default function ArtistCard({ artist = {}, selected }) {
   const computeStatus = () => {
     if (!artist) return 'unknown';
 
-    // Normalize flags (backend may send is_approved / artist_is_approved / status)
     const userDeleted = !!(artist.user && (artist.user.deleted_at || artist.user_deleted_at));
     const userBanned = !!(artist.user && (artist.user.banned || artist.user_banned));
     const isRejected = normBool(artist.is_rejected) || normBool(artist.artist_is_rejected) || (artist.status === 'rejected');
@@ -108,7 +108,6 @@ export default function ArtistCard({ artist = {}, selected }) {
   // Photo fallback
   const initialPhoto = artist.photoUrl || artist.photo_url || artist.photo || artist.avatar || '/assets/placeholder.png';
   const [imgSrc, setImgSrc] = useState(resolveToBackend(initialPhoto) || initialPhoto);
-
   useEffect(() => {
     const newPhoto = artist.photoUrl || artist.photo_url || artist.photo || artist.avatar || '/assets/placeholder.png';
     setImgSrc(resolveToBackend(newPhoto) || newPhoto);
@@ -121,11 +120,11 @@ export default function ArtistCard({ artist = {}, selected }) {
   }
 
   // Audio preview handling
-  const previewRaw = (() => {
+  const previewRaw = useMemo(() => {
     const t = (Array.isArray(artist.tracks) && artist.tracks[0]) || (Array.isArray(artist.tracks_list) && artist.tracks_list[0]) || null;
     if (!t) return null;
     return t.previewUrl || t.preview_url || t.file_url || t.url || t.preview || null;
-  })();
+  }, [artist]);
   const previewSrc = previewRaw ? resolveToBackend(previewRaw) || previewRaw : null;
   const [hasAudio, setHasAudio] = useState(Boolean(previewSrc));
   useEffect(() => setHasAudio(Boolean(previewSrc)), [previewSrc]);
@@ -134,62 +133,106 @@ export default function ArtistCard({ artist = {}, selected }) {
   const shortBio = bio ? (bio.length > 120 ? bio.slice(0, 117) + '...' : bio) : '';
 
   // Image styles: contain to avoid cropping/zooming, centered with letterbox
-  const imgContainerStyle = { height: 180, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5' };
+  const imgContainerStyle = { overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5' };
   const imgStyle = { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' };
 
+  // badges: show up to 4 then "+N" indicator
+  const visibleGenreBadges = genreList.slice(0, 4);
+  const extraGenreCount = Math.max(0, genreList.length - visibleGenreBadges.length);
+  const visibleMoodBadges = moodList.slice(0, 4);
+  const extraMoodCount = Math.max(0, moodList.length - visibleMoodBadges.length);
+
   return (
-    <Card className={cardClass}>
-      <div style={imgContainerStyle}>
-        {imgSrc ? (
-          // using plain <img> so we can fully control object-fit container behavior
-          // and preserve the onError handling
-          // alt attribute simplified to remove redundant words per eslint rule
-          <img src={imgSrc} alt={name} style={imgStyle} onError={handleImgError} />
-        ) : (
-          <div style={{ color: '#777' }}>No image</div>
-        )}
-      </div>
+    <>
+      <style>{`
+        /* responsive tweaks for ArtistCard */
+        .artist-card .artist-card-img { height: 180px; }
+        @media (max-width: 576px) {
+          .artist-card .artist-card-img { height: 140px; }
+          .artist-card .card-body { padding: .6rem; }
+          .artist-card .name { font-size: 1rem; }
+        }
+        .artist-card .name { font-weight: 600; font-size: 1.05rem; margin-bottom: 0; }
+        .artist-card .meta { font-size: .82rem; color: #6c757d; }
+        .artist-card .badges { display:flex; flex-wrap:wrap; gap:.25rem .25rem; margin-top:.3rem; }
+        .artist-card .followers-district { font-size: .78rem; color: #6c757d; text-align:right; }
+        @media (max-width: 576px) {
+          .artist-card .followers-district { text-align:left; margin-top: .5rem; }
+        }
+        .artist-card .audio-preview { width: 100%; max-width: 100%; }
+        .artist-card .card-footer-row { gap: .5rem; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+      `}</style>
 
-      <Card.Body>
-        <div className="d-flex justify-content-between align-items-start mb-2">
-          <div>
-            <Card.Title className="mb-0" style={{ fontSize: 18 }}>{name}</Card.Title>
-            <div className="small text-muted">
-              {genreList.slice(0, 2).join(', ')}{genreList.length && district ? ' • ' : ''}{district}
+      <Card className={cardClass}>
+        <div className="artist-card-img" style={imgContainerStyle}>
+          {imgSrc ? (
+            <img src={imgSrc} alt={name} style={imgStyle} onError={handleImgError} />
+          ) : (
+            <div style={{ color: '#777' }}>No image</div>
+          )}
+        </div>
+
+        <Card.Body>
+          {/* Header: stacks on small screens, aligns horizontally on md+ */}
+          <div className="d-flex flex-column flex-md-row justify-content-between align-items-start mb-2">
+            <div style={{ minWidth: 0 }}>
+              <Card.Title className="name">{name}</Card.Title>
+              <div className="meta text-truncate" style={{ maxWidth: '100%' }}>
+                {genreList.slice(0, 2).join(', ')}{genreList.length && district ? ' • ' : ''}{district}
+              </div>
+            </div>
+
+            <div className="text-md-end mt-2 mt-md-0" style={{ minWidth: 90 }}>
+              {statusBadge(status)}
+              <div className="small text-muted mt-1">
+                <FaStar className="me-1 text-warning" />
+                {rating ? Number(rating).toFixed(1) : '—'} ★
+              </div>
             </div>
           </div>
-          <div className="text-end">
-            {statusBadge(status)}
-            <div className="small text-muted mt-1">
-              <FaStar className="me-1 text-warning" />
-              {rating ? Number(rating).toFixed(1) : '—'} ★
+
+          <Card.Text className="mb-2" style={{ minHeight: 44 }}>{shortBio}</Card.Text>
+
+          <div className="badges">
+            {visibleGenreBadges.map(g => <Badge bg="success" className="me-1 mb-1" key={`g-${g}`}>{g}</Badge>)}
+            {extraGenreCount > 0 && <Badge bg="secondary" className="me-1 mb-1">+{extraGenreCount}</Badge>}
+            {visibleMoodBadges.map(m => <Badge bg="info" text="dark" className="me-1 mb-1" key={`m-${m}`}>{m}</Badge>)}
+            {extraMoodCount > 0 && <Badge bg="secondary" className="me-1 mb-1">+{extraMoodCount}</Badge>}
+          </div>
+
+          {hasAudio && previewSrc && (
+            <div className="mb-2 mt-2">
+              <audio
+                controls
+                preload="none"
+                className="audio-preview"
+                onError={() => setHasAudio(false)}
+                aria-label={`Preview for ${name}`}
+              >
+                <source src={previewSrc} />
+              </audio>
+            </div>
+          )}
+
+          <div className="card-footer-row mt-2">
+            <div>
+              <Button as={Link} to={`/artist/${artist.id}`} variant="success" size="sm">View Profile</Button>
+            </div>
+
+            <div className="followers-district">
+              <div>
+                {typeof followers === 'number' ? `${followers} follower${followers !== 1 ? 's' : ''}` : '—'}
+              </div>
+              {district ? (
+                <div className="mt-1">
+                  <FaMapMarkerAlt className="me-1" />
+                  <span>{district}</span>
+                </div>
+              ) : null}
             </div>
           </div>
-        </div>
-
-        <Card.Text className="mb-2" style={{ minHeight: 44 }}>{shortBio}</Card.Text>
-
-        <div className="mb-2">
-          {genreList.slice(0, 6).map(g => <Badge bg="success" className="me-1 mb-1" key={`g-${g}`}>{g}</Badge>)}
-          {moodList.slice(0, 6).map(m => <Badge bg="info" text="dark" className="me-1 mb-1" key={`m-${m}`}>{m}</Badge>)}
-        </div>
-
-        {hasAudio && previewSrc && (
-          <div className="mb-2">
-            <audio controls preload="none" style={{ width: '100%' }} onError={() => setHasAudio(false)}>
-              <source src={previewSrc} />
-            </audio>
-          </div>
-        )}
-
-        <div className="d-flex justify-content-between align-items-center">
-          <Button as={Link} to={`/artist/${artist.id}`} variant="success" size="sm">View Profile</Button>
-          <div className="text-end small text-muted">
-            {typeof followers === 'number' ? `${followers} follower${followers !== 1 ? 's' : ''}` : '—'}
-            {district ? <div className="mt-1"><FaMapMarkerAlt className="me-1" />{district}</div> : null}
-          </div>
-        </div>
-      </Card.Body>
-    </Card> 
+        </Card.Body>
+      </Card>
+    </>
   );
 }
