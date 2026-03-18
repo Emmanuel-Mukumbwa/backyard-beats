@@ -1,4 +1,3 @@
-// src/pages/Home.jsx
 import React, { useEffect, useState, useRef, useContext, useCallback } from 'react';
 import axios from '../api/axiosConfig';
 import ArtistCard from '../components/ArtistCard';
@@ -27,19 +26,22 @@ export default function Home() {
   // Responsive columns / limit:
   // md (>=768) -> 3 columns per row -> 6 per page (2 rows)
   // lg (>=992) -> 4 columns per row -> 8 per page (2 rows)
-  // xs/sm -> 1 column per row -> fallback 6 per page (shows multiple pages)
+  // xs/sm (<768) -> 2 columns per row -> 2 per page (1 row)
   const getCols = () => {
     if (typeof window === 'undefined') return 4;
     const w = window.innerWidth;
     if (w >= 992) return 4;
     if (w >= 768) return 3;
-    return 1;
+    return 2; // show two columns on small screens
   };
+
+  // compute rows per page depending on cols
+  const rowsForCols = (c) => (c <= 2 ? 1 : 2);
 
   const [cols, setCols] = useState(getCols());
   const [limit, setLimit] = useState(() => {
     const c = getCols();
-    return Math.max(1, c) * 2; // 2 rows per page
+    return Math.max(1, c) * rowsForCols(c);
   });
 
   const { user } = useContext(AuthContext);
@@ -62,9 +64,9 @@ export default function Home() {
     };
   }, [cols]);
 
-  // when cols change, recalc limit (2 rows) and reset page to 1
+  // when cols change, recalc limit (rows depend on cols) and reset page to 1
   useEffect(() => {
-    const newLimit = Math.max(1, cols) * 2;
+    const newLimit = Math.max(1, cols) * rowsForCols(cols);
     if (newLimit !== limit) {
       setLimit(newLimit);
       setPage(1);
@@ -234,12 +236,12 @@ export default function Home() {
                     </div>
                   </Col>
                 ) : (
-                  // 3-per-row on md (md=4), 4-per-row on lg (lg=3)
+                  // responsive cols: xs=6 (2 per row on small), md=4 (3 per row), lg=3 (4 per row)
                   artists.map(a => (
                     <Col
                       key={a.id}
                       id={`artist-${a.id}`}
-                      xs={12}
+                      xs={6}
                       md={4}
                       lg={3}
                       className="mb-4"
