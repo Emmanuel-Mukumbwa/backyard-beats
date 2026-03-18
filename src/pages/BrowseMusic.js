@@ -1,3 +1,4 @@
+// src/pages/BrowseMusic.jsx
 import React, { useEffect, useState, useRef, useCallback, useContext } from 'react';
 import axios from '../api/axiosConfig';
 import FilterBar from '../components/FilterBar';
@@ -5,7 +6,7 @@ import { Container, Row, Col, Button, Spinner, ListGroup, Image, Form, Collapse 
 import { FaChevronLeft, FaMusic, FaFilter } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
-import ToastMessage from '../components/ToastMessage'; // added for toast notifications
+import ToastMessage from '../components/ToastMessage'; // toast wrapper you provided
 
 /** sanitize file name for client (small helper) */
 function sanitizeFilename(s) {
@@ -78,11 +79,11 @@ async function downloadTrackById(trackId, setToast) {
       a.remove();
       window.URL.revokeObjectURL(url);
     }
-    if (typeof setToast === 'function') setToast({ show: true, message: `Download started: ${filename}`, variant: 'success' });
+    if (typeof setToast === 'function') setToast({ show: true, message: `Download started: ${filename}`, variant: 'success', autohide: true, delay: 3500 });
   } catch (err) {
     if (typeof setToast === 'function') {
       const message = (err && err.message) ? err.message : 'Download failed';
-      setToast({ show: true, message: `Download failed: ${message}`, variant: 'danger' });
+      setToast({ show: true, message: `Download failed: ${message}`, variant: 'danger', autohide: false });
     }
   }
 }
@@ -101,7 +102,9 @@ export default function BrowseMusic() {
 
   const [showFilters, setShowFilters] = useState(false);
   const [downloadingId, setDownloadingId] = useState(null); // track which track is being downloaded
-  const [toast, setToast] = useState({ show: false, message: '', variant: 'info' }); // local toast state
+
+  // toast state accepts JSX in message so we can provide a Login button
+  const [toast, setToast] = useState({ show: false, message: '', variant: 'info', autohide: true, delay: 3500 });
 
   const navigate = useNavigate();
   const { user, artist: myArtist } = useContext(AuthContext);
@@ -184,11 +187,35 @@ export default function BrowseMusic() {
 
   // Handle download with toast and disable button while downloading
   const handleDownload = (trackId) => {
+    // If not logged in, show a persistent green toast with a Login button (no redirect)
+    if (!user || !user.id) {
+      setToast({
+        show: true,
+        // JSX message so the toast can include an actionable Login button.
+        message: (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div>Please log in to download tracks.</div>
+            <div>
+              <Button size="sm" variant="light" onClick={() => { setToast(t => ({ ...t, show: false })); navigate('/login'); }}>
+                Login
+              </Button>
+            </div>
+          </div>
+        ),
+        variant: 'success', // green
+        autohide: false,    // keep visible until user closes or acts
+        delay: 10000
+      });
+      return;
+    }
+
+    // Authenticated: proceed with download flow
     setDownloadingId(trackId);
-    setToast({ show: true, message: 'Preparing your download...', variant: 'info' });
+    setToast({ show: true, message: 'Preparing your download...', variant: 'info', autohide: true, delay: 3500 });
+    // call download helper; it will set toast on success/failure via the passed setToast
     downloadTrackById(trackId, (toastObj) => {
-      setToast(toastObj);
-      // clear downloading state on success or failure
+      // ensure downloadingId is cleared once helper reports back
+      setToast(prev => ({ ...prev, ...toastObj }));
       setDownloadingId(null);
     });
   };
@@ -199,12 +226,13 @@ export default function BrowseMusic() {
   return (
     <Container fluid className="mt-4 px-lg-5">
       <ToastMessage
-        show={toast.show}
+        show={!!toast.show}
         onClose={() => setToast(s => ({ ...s, show: false }))}
         message={toast.message}
         variant={toast.variant}
-        delay={3500}
+        delay={toast.delay || 3500}
         position="top-end"
+        autohide={typeof toast.autohide === 'boolean' ? toast.autohide : true}
       />
 
       <Row>
