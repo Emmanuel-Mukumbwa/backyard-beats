@@ -1,0 +1,65 @@
+/* tracks-panel.css
+   Subtle right-side gradient overlay and swipe hint for small screens.
+   Adjust colors to match your theme if needed.
+*/
+
+.tracks-table-wrapper {
+  position: relative;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch; /* smooth scrolling on iOS */
+  padding-bottom: 6px; /* give slight space so the overlay doesn't cover bottom */
+}
+
+/* right-side gradient overlay to indicate more content off-screen */
+.tracks-table-wrapper::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 64px;
+  height: 100%;
+  pointer-events: none;
+  /* light background default; if you use dark theme, override in a theme-specific css */
+  background: linear-gradient(to right, rgba(255,255,255,0), rgba(255,255,255,1));
+  transition: opacity 0.25s ease;
+  opacity: 1;
+}
+
+/* hide the overlay when no hint is wanted */
+.tracks-table-wrapper.no-hint::after {
+  opacity: 0;
+}
+
+/* the small floating hint */
+.scroll-hint {
+  position: absolute;
+  right: 12px;
+  top: 8px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 20px;
+  background: rgba(0,0,0,0.65);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+  pointer-events: none; /* don't block scroll/taps */
+}
+
+/* hint inner text sizing */
+.scroll-hint .hint-text {
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+/* hide on larger screens: the table fits or user expects desktop layout */
+@media (min-width: 768px) {
+  .scroll-hint { display: none !important; }
+  .tracks-table-wrapper::after { display: none; }
+}
+
+/* If your app has a dark background for table container, override gradient color */
+/* e.g. .dark-theme .tracks-table-wrapper::after { background: linear-gradient(to right, rgba(0,0,0,0), rgba(0,0,0,0.85)); } */
