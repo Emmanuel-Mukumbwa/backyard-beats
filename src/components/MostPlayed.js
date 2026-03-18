@@ -1,5 +1,4 @@
-//src/components/NewReleases.js
-import React, { useEffect, useState, useRef, useContext } from 'react';
+import React, { useEffect, useState, useRef, useContext, useCallback } from 'react';
 import axios from '../api/axiosConfig';
 import { ListGroup, Spinner, Image, Button } from 'react-bootstrap';
 import { FaDownload, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
@@ -73,19 +72,19 @@ async function downloadTrackById(trackId, setToast, setDownloadingId) {
       window.URL.revokeObjectURL(url);
     }
     if (typeof setToast === 'function') {
-      setToast({ show: true, message: `Download started: ${filename}`, variant: 'success' });
+      setToast({ show: true, message: `Download started: ${filename}`, variant: 'success', autohide: true, delay: 3500 });
     }
     if (setDownloadingId) setDownloadingId(null);
   } catch (err) {
     if (typeof setToast === 'function') {
       const message = (err && err.message) ? err.message : 'Download failed';
-      setToast({ show: true, message: `Download failed: ${message}`, variant: 'danger' });
+      setToast({ show: true, message: `Download failed: ${message}`, variant: 'danger', autohide: false });
     }
     if (setDownloadingId) setDownloadingId(null);
   }
 }
 
-export default function MostPlayed({ limit = 6, onSelect = () => {} }) {
+export default function MostPlayed({ limit = 4, onSelect = () => {} }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -95,23 +94,44 @@ export default function MostPlayed({ limit = 6, onSelect = () => {} }) {
   const { user, artist: myArtist } = useContext(AuthContext);
   const navigate = useNavigate();
 
-  const [toast, setToast] = useState({ show: false, message: '', variant: 'info' });
+  const [toast, setToast] = useState({ show: false, message: '', variant: 'info', autohide: true, delay: 3500 });
   const [downloadingId, setDownloadingId] = useState(null);
+
+  // refs to avoid stale closures
+  const pageRef = useRef(page);
+  const limitRef = useRef(limit);
+  useEffect(() => { pageRef.current = page; }, [page]);
+  useEffect(() => { limitRef.current = limit; }, [limit]);
+
+  const fetchMost = useCallback(async ({ p = pageRef.current, lim = limitRef.current } = {}) => {
+    mountedRef.current = true;
+    setLoading(true);
+    try {
+      const res = await axios.get('/public/tracks/most-played', { params: { limit: lim, page: p } });
+      if (!mountedRef.current) return;
+      const data = res.data || {};
+      setItems(data.items || []);
+      setTotal(data.total || 0);
+      const serverPage = (typeof data.page === 'number') ? data.page : p;
+      setPage(serverPage);
+      pageRef.current = serverPage;
+    } catch (err) {
+      if (mountedRef.current) setItems([]);
+      console.error('Failed to load most-played', err);
+    } finally {
+      if (mountedRef.current) setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
-    setLoading(true);
-    axios.get('/public/tracks/most-played', { params: { limit, page } })
-      .then(res => {
-        if (!mountedRef.current) return;
-        const data = res.data || {};
-        setItems(data.items || []);
-        setTotal(data.total || 0);
-      })
-      .catch(() => { if (mountedRef.current) setItems([]); })
-      .finally(() => { if (mountedRef.current) setLoading(false); });
+    fetchMost({ p: 1, lim: limitRef.current });
     return () => { mountedRef.current = false; };
-  }, [limit, page]);
+  }, [fetchMost]);
+
+  useEffect(() => {
+    fetchMost({ p: page, lim: limitRef.current });
+  }, [page, fetchMost]);
 
   function handlePlay(audioEl) {
     if (!audioEl) return;
@@ -156,11 +176,11 @@ export default function MostPlayed({ limit = 6, onSelect = () => {} }) {
     }
 
     setDownloadingId(trackId);
-    setToast({ show: true, message: 'Preparing your download...', variant: 'info' });
+    setToast({ show: true, message: 'Preparing your download...', variant: 'info', autohide: true, delay: 3500 });
     downloadTrackById(trackId, setToast, setDownloadingId);
   };
 
-  const totalPages = Math.max(1, Math.ceil((total || 0) / limit));
+  const totalPages = Math.max(1, Math.ceil((total || 0) / Math.max(1, limit)));
 
   if (loading) return <div className="py-2 text-center"><Spinner animation="border" size="sm" /></div>;
   if (!items.length) return <div className="small text-muted">No data yet.</div>;
@@ -168,12 +188,13 @@ export default function MostPlayed({ limit = 6, onSelect = () => {} }) {
   return (
     <>
       <ToastMessage
-        show={toast.show}
+        show={!!toast.show}
         onClose={() => setToast(s => ({ ...s, show: false }))}
         message={toast.message}
         variant={toast.variant}
-        delay={3500}
+        delay={toast.delay || 3500}
         position="top-end"
+        autohide={typeof toast.autohide === 'boolean' ? toast.autohide : true}
       />
       <div>
         <ListGroup size="sm" variant="flush">
