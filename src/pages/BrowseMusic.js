@@ -1,3 +1,4 @@
+// src/pages/BrowseMusic.js
 import React, { useEffect, useState, useRef, useCallback, useContext } from 'react';
 import axios from '../api/axiosConfig';
 import FilterBar from '../components/FilterBar';
@@ -236,7 +237,7 @@ export default function BrowseMusic() {
             </div>
           </div>
         ),
-        variant: 'success',
+        variant: 'info',
         autohide: false,
         delay: 10000
       });
@@ -265,6 +266,109 @@ export default function BrowseMusic() {
         position="top-end"
         autohide={typeof toast.autohide === 'boolean' ? toast.autohide : true}
       />
+
+      <style>{`
+        /* Layout fixes to prevent horizontal overflow on small screens */
+        .browse-track-item {
+          overflow: hidden;
+        }
+
+        /* Flex container that holds artwork + content: allow wrapping */
+        .browse-track-row {
+          display: flex;
+          align-items: flex-start;
+          gap: 14px;
+          flex-wrap: nowrap; /* prefer no wrap on md+, but child will shrink */
+        }
+
+        /* Left artwork column */
+        .browse-artwork {
+          flex: 0 0 72px;
+          width: 72px;
+          height: 72px;
+          border-radius: 6px;
+          overflow: hidden;
+          min-width: 72px;
+        }
+
+        /* Main content that must be shrinkable and truncate text */
+        .browse-content {
+          flex: 1 1 auto;
+          min-width: 0; /* CRITICAL for text truncation inside flex items */
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        /* Title should truncate and never force horizontal scroll */
+        .browse-title {
+          font-size: 16px;
+          font-weight: 700;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .browse-sub {
+          font-size: 0.9rem;
+          color: #6c757d;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        /* Controls row: preview + actions */
+        .browse-controls {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+
+        .browse-controls-left {
+          min-width: 0; /* again allow shrinking */
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          flex: 1 1 auto;
+        }
+
+        /* audio control responsive sizing */
+        .browse-audio {
+          width: 100%;
+          max-width: 220px;
+        }
+
+        /* Right-side meta (plays & download) should not grow and will wrap under on very small screens */
+        .browse-meta {
+          flex: 0 0 auto;
+          white-space: nowrap;
+          text-align: right;
+        }
+
+        /* smaller artwork on narrow screens */
+        @media (max-width: 575.98px) {
+          .browse-track-row {
+            gap: 10px;
+          }
+          .browse-artwork {
+            flex: 0 0 56px;
+            width: 56px;
+            height: 56px;
+            min-width: 56px;
+          }
+          .browse-title { font-size: 15px; }
+          .browse-audio { max-width: 100%; }
+          .browse-meta { margin-top: 6px; }
+        }
+
+        /* Prevent ListGroup from adding weird right padding that causes scroll on tiny screens */
+        .list-group-flush > .list-group-item {
+          padding-right: 12px;
+          padding-left: 12px;
+        }
+      `}</style>
 
       <Row>
         <Col xs={12}>
@@ -342,63 +446,77 @@ export default function BrowseMusic() {
                 const preview = t.preview_url || null;
                 const isDownloading = downloadingId === t.id;
                 return (
-                  <ListGroup.Item key={t.id} className="py-3">
-                    <div className="d-flex align-items-start">
-                      <div style={{ width: 72, marginRight: 14 }}>
+                  <ListGroup.Item key={t.id} className="py-3 browse-track-item">
+                    <div className="browse-track-row">
+                      <div className="browse-artwork">
                         {artwork ? (
-                          <Image src={artwork} rounded style={{ width: 72, height: 72, objectFit: 'cover' }} />
+                          <Image
+                            src={artwork}
+                            rounded
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            alt={`${t.title} artwork`}
+                            onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/defaults/track-art.png'; }}
+                          />
                         ) : (
-                          <div style={{ width: 72, height: 72, background: '#efefef', borderRadius: 6 }} />
+                          <div style={{ width: '100%', height: '100%', background: '#efefef' }} />
                         )}
                       </div>
 
-                      <div className="flex-grow-1">
-                        <div className="d-flex align-items-start justify-content-between">
+                      <div className="browse-content">
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                           <div style={{ minWidth: 0 }}>
-                            <div className="fw-bold text-truncate" style={{ fontSize: 16 }}>{t.title}</div>
-                            <div className="small text-muted mt-1">
-                              <span style={{ cursor: artistName ? 'pointer' : 'default' }} onClick={() => t.artist?.id && handleArtistClick(t.artist.id)}>
-                                {artistName}
+                            <div className="browse-title" title={t.title}>{t.title}</div>
+                            <div className="browse-sub">
+                              <span
+                                style={{ cursor: artistName ? 'pointer' : 'default' }}
+                                onClick={() => t.artist?.id && handleArtistClick(t.artist.id)}
+                                title={artistName || ''}
+                              >
+                                {artistName || '-'}
                               </span>
                               {t.genre ? <span className="ms-2">• {t.genre}</span> : null}
                               {t.release_date ? <span className="ms-2">• {t.release_date}</span> : null}
                             </div>
                           </div>
 
-                          <div className="text-end small text-muted">
-                            {t.plays ? `${t.plays} plays` : null}
+                          <div className="browse-meta">
+                            <div className="small text-muted">
+                              {t.plays ? `${t.plays} plays` : null}
+                            </div>
+                            <div>
+                              <Button
+                                variant="link"
+                                size="sm"
+                                onClick={() => handleDownload(t.id)}
+                                disabled={isDownloading}
+                                className="p-0 text-success"
+                                aria-label={`Download ${t.title}`}
+                                title="Download"
+                              >
+                                {isDownloading ? 'Preparing...' : 'Download'}
+                              </Button>
+                            </div>
                           </div>
                         </div>
 
-                        {/* Compact controls under title */}
-                        <div className="d-flex align-items-center gap-3 mt-2">
-                          {preview ? (
-                            <audio
-                              controls
-                              preload="none"
-                              controlsList="nodownload"
-                              style={{ width: 220, height: 28 }}
-                              src={preview}
-                              onPlay={e => { handlePlay(e.target); recordListenIfNeeded(t); }}
-                              onPause={e => { handlePause(e.target); }}
-                              onEnded={() => { if (playingRef.current) playingRef.current = null; }}
-                            />
-                          ) : (
-                            <div className="small text-muted">No preview</div>
-                          )}
-                        </div>
-
-                        {/* Download button placed below preview, as text */}
-                        <div className="mt-2">
-                          <Button
-                            variant="link"
-                            size="sm"
-                            onClick={() => handleDownload(t.id)}
-                            disabled={isDownloading}
-                            className="p-0 text-success"
-                          >
-                            {isDownloading ? 'Preparing...' : 'Download'}
-                          </Button>
+                        <div className="browse-controls">
+                          <div className="browse-controls-left">
+                            {preview ? (
+                              <audio
+                                controls
+                                preload="none"
+                                controlsList="nodownload"
+                                className="browse-audio"
+                                src={preview}
+                                onPlay={e => { handlePlay(e.target); recordListenIfNeeded(t); }}
+                                onPause={e => { handlePause(e.target); }}
+                                onEnded={() => { if (playingRef.current) playingRef.current = null; }}
+                              />
+                            ) : (
+                              <div className="small text-muted">No preview</div>
+                            )}
+                          </div>
+                          {/* meta is already shown to the right of title; this row keeps controls compact */}
                         </div>
                       </div>
                     </div>
