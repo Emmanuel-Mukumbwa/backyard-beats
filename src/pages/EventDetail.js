@@ -1,9 +1,25 @@
-// src/pages/EventDetail.jsx
 import React, { useEffect, useState, useContext } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from '../api/axiosConfig';
-import { Card, Button, Alert } from 'react-bootstrap';
+import { Card, Button, Alert, Row, Col, Badge } from 'react-bootstrap';
 import { AuthContext } from '../context/AuthContext';
+import {
+  FaCalendarAlt,
+  FaMapMarkerAlt,
+  FaTicketAlt,
+  FaClock,
+  FaUsers,
+  FaPhoneAlt,
+  FaCar,
+  FaAccessibleIcon,
+  FaTshirt,
+  FaGift,
+  FaMusic,
+  FaInfoCircle,
+  FaShareAlt,
+  FaCheckCircle,
+  FaQuestionCircle
+} from 'react-icons/fa';
 
 const SUPPORT_EMAIL = 'support@backyardbeats.local';
 const SUPPORT_URL = '/support';
@@ -23,9 +39,16 @@ function resolveImage(url) {
   const base = getBackendBase().replace(/\/$/, '');
   if (url.startsWith('/')) return `${base}${url}`;
   if (url.startsWith('uploads/')) return `${base}/${url}`;
-  // fallback: assume it's already a relative path under uploads
   return `${base}/uploads/${url}`;
 }
+
+// Helper to parse description into sections (if stored as key: value lines)
+// Falls back to displaying as plain text with line breaks.
+const parseDescription = (desc) => {
+  if (!desc) return { sections: [], plain: '' };
+  const lines = desc.split('\n\n'); // split by double newline (paragraphs)
+  return { sections: lines, plain: desc };
+};
 
 export default function EventDetail() {
   const { id } = useParams();
@@ -80,14 +103,12 @@ export default function EventDetail() {
     return () => { cancelled = true; };
   }, [user, id]);
 
-  // helpers to determine visibility/permission
   const isEventApproved = (ev) => !!(ev && (ev.is_approved || ev.isApproved));
   const isArtistApproved = (ev) => {
     if (!ev) return false;
-    // artist info may come as ev.artist (object) or fields like artist_is_approved
     if (ev.artist && typeof ev.artist.is_approved !== 'undefined') return !!ev.artist.is_approved;
     if (typeof ev.artist_is_approved !== 'undefined') return !!ev.artist_is_approved;
-    return true; // if missing, assume ok (safe fallback)
+    return true;
   };
   const isArtistRejected = (ev) => {
     if (!ev) return false;
@@ -105,7 +126,6 @@ export default function EventDetail() {
 
   const rsvpAllowed = (ev) => {
     if (!ev) return false;
-    // Only allow RSVP for public events: event approved && artist approved && not banned/deleted
     if (!isEventApproved(ev)) return false;
     if (!isArtistApproved(ev)) return false;
     if (isArtistRejected(ev)) return false;
@@ -115,17 +135,14 @@ export default function EventDetail() {
 
   const doRsvp = async (status = 'going') => {
     if (!user || !user.id) {
-      // redirect to login
       window.location.href = '/login';
       return;
     }
-
     if (!event) return;
     if (!rsvpAllowed(event)) {
       alert('This event is not open for public RSVPs.');
       return;
     }
-
     setProcessing(true);
     try {
       const res = await axios.post(`/events/${id}/rsvp`, { status });
@@ -145,7 +162,7 @@ export default function EventDetail() {
     }
   };
 
-  const cancel = async () => {
+  const cancelRsvp = async () => {
     if (!user || !user.id) {
       window.location.href = '/login';
       return;
@@ -165,10 +182,7 @@ export default function EventDetail() {
   if (error) return <Alert variant="danger">{error}</Alert>;
   if (!event) return <Alert variant="warning">Event not found</Alert>;
 
-  // derive displayable district name (use district_name preferred)
   const districtName = event.district_name || event.district || (event.district_id ? `#${event.district_id}` : 'TBA');
-
-  // Artist display info handling
   const artistDisplayName = event.artist?.display_name || event.artist_display_name || event.artistName || (event.artist && (event.artist.displayName || event.artist.username)) || null;
   const artistId = event.artist?.id || event.artist_id || event.artistId || null;
 
@@ -176,25 +190,29 @@ export default function EventDetail() {
   const showPendingBanner = !!(event.is_approved === 0 && !showRejectedBanner);
   const eventRejectedReason = event.rejection_reason || event.rejectionReason || null;
 
+  // Parse description into sections
+  const { sections } = parseDescription(event.description);
+
   return (
-    <Card>
-      <Card.Body>
+    <Card className="shadow-sm border-0">
+      <Card.Body className="p-4">
         {showPendingBanner && (
-          <Alert variant="warning">
+          <Alert variant="warning" className="mb-4">
+            <FaInfoCircle className="me-2" />
             This event is pending approval. It is currently visible only to you (the artist) and not public.
           </Alert>
         )}
         {showRejectedBanner && (
-          <Alert variant="danger">
+          <Alert variant="danger" className="mb-4">
             <div><strong>Event rejected.</strong></div>
-            {eventRejectedReason && <div className="small text-danger">Reason: {eventRejectedReason}</div>}
+            {eventRejectedReason && <div className="small text-danger mt-1">Reason: {eventRejectedReason}</div>}
             <div className="small mt-2">
               <a href={SUPPORT_URL}>Contact support</a> or <a href={`mailto:${SUPPORT_EMAIL}`}>email support</a> to appeal.
             </div>
           </Alert>
         )}
         {isArtistRejected(event) && (
-          <Alert variant="danger">
+          <Alert variant="danger" className="mb-4">
             <div className="small">Your artist profile was rejected — this event will remain private until your profile is approved.</div>
             <div className="small mt-2">
               <a href={SUPPORT_URL}>Contact support</a> or <a href={`mailto:${SUPPORT_EMAIL}`}>email support</a>
@@ -202,16 +220,17 @@ export default function EventDetail() {
           </Alert>
         )}
         {isArtistBannedOrDeleted(event) && (
-          <Alert variant="danger">Artist account is banned or deleted — event not available.</Alert>
+          <Alert variant="danger" className="mb-4">Artist account is banned or deleted — event not available.</Alert>
         )}
 
         {/* Event Image */}
         {event.image_url && (
-          <div style={{ marginBottom: 16 }}>
+          <div className="mb-4 text-center">
             <img
               src={resolveImage(event.image_url)}
               alt={event.title}
-              style={{ width: '100%', maxHeight: 400, objectFit: 'cover', borderRadius: 6 }}
+              className="img-fluid rounded"
+              style={{ maxHeight: 400, objectFit: 'cover', width: '100%' }}
               onError={(e) => {
                 e.currentTarget.onerror = null;
                 e.currentTarget.src = 'https://placehold.co/800x400?text=Event';
@@ -220,73 +239,120 @@ export default function EventDetail() {
           </div>
         )}
 
-        <h3>{event.title}</h3>
+        <h2 className="mb-3 fw-bold">{event.title}</h2>
 
-        <div className="small text-muted">
-          {districtName} • {event.event_date ? new Date(event.event_date).toLocaleString() : 'TBA'}
-        </div>
-
-        <p className="mt-3">{event.description}</p>
-
-        {artistDisplayName && (
-          <div className="mb-2">
-            Artist:{' '}
-            {artistId ? (
-              <Link to={`/artist/${artistId}`}>
-                {artistDisplayName}
-              </Link>
-            ) : (
-              <span>{artistDisplayName}</span>
+        <Row className="mb-4">
+          <Col md={6}>
+            <div className="d-flex align-items-center mb-2 text-muted">
+              <FaCalendarAlt className="me-2" />
+              <span>{event.event_date ? new Date(event.event_date).toLocaleString() : 'TBA'}</span>
+            </div>
+            <div className="d-flex align-items-center mb-2 text-muted">
+              <FaMapMarkerAlt className="me-2" />
+              <span>{districtName}</span>
+            </div>
+            {event.venue && (
+              <div className="d-flex align-items-center mb-2 text-muted">
+                <FaMapMarkerAlt className="me-2" />
+                <span>{event.venue}</span>
+              </div>
             )}
-          </div>
+          </Col>
+          <Col md={6}>
+            {artistDisplayName && (
+              <div className="d-flex align-items-center mb-2">
+                <FaMusic className="me-2 text-success" />
+                <strong>Artist: </strong>
+                {artistId ? (
+                  <Link to={`/artist/${artistId}`} className="ms-1">{artistDisplayName}</Link>
+                ) : (
+                  <span className="ms-1">{artistDisplayName}</span>
+                )}
+              </div>
+            )}
+            {event.ticket_url && (
+              <div className="d-flex align-items-center mb-2">
+                <FaTicketAlt className="me-2 text-success" />
+                <a href={event.ticket_url} target="_blank" rel="noreferrer" className="text-decoration-none">Buy Tickets</a>
+              </div>
+            )}
+          </Col>
+        </Row>
+
+        {/* Description – nicely formatted */}
+        {event.description && (
+          <Card className="bg-light border-0 mb-4">
+            <Card.Body>
+              <h5 className="mb-3">Event Details</h5>
+              {sections.length > 1 ? (
+                sections.map((paragraph, idx) => {
+                  // Try to detect if paragraph starts with a known label
+                  const lower = paragraph.toLowerCase();
+                  let icon = null;
+                  if (lower.startsWith('highlights')) icon = <FaInfoCircle className="me-2 text-success" />;
+                  else if (lower.startsWith('lineup')) icon = <FaUsers className="me-2 text-success" />;
+                  else if (lower.startsWith('schedule')) icon = <FaClock className="me-2 text-success" />;
+                  else if (lower.startsWith('tickets')) icon = <FaTicketAlt className="me-2 text-success" />;
+                  else if (lower.startsWith('age')) icon = <FaCheckCircle className="me-2 text-success" />;
+                  else if (lower.startsWith('parking')) icon = <FaCar className="me-2 text-success" />;
+                  else if (lower.startsWith('accessibility')) icon = <FaAccessibleIcon className="me-2 text-success" />;
+                  else if (lower.startsWith('contact')) icon = <FaPhoneAlt className="me-2 text-success" />;
+                  else if (lower.startsWith('presented')) icon = <FaGift className="me-2 text-success" />;
+                  else if (lower.startsWith('dress')) icon = <FaTshirt className="me-2 text-success" />;
+                  else icon = <FaInfoCircle className="me-2 text-muted" />;
+
+                  return (
+                    <div key={idx} className="mb-3 d-flex">
+                      <div className="me-2 mt-1">{icon}</div>
+                      <div style={{ whiteSpace: 'pre-line', flex: 1 }}>{paragraph}</div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div style={{ whiteSpace: 'pre-line' }}>{event.description}</div>
+              )}
+            </Card.Body>
+          </Card>
         )}
 
-        <div className="mb-3">
-          <strong>Venue:</strong> {event.venue || 'TBA'}<br />
-          <strong>Address:</strong> {event.address || 'TBA'}<br />
-          {event.ticket_url && (
-            <a href={event.ticket_url} target="_blank" rel="noreferrer">Buy tickets</a>
-          )}
-        </div>
-
-        {/* RSVP controls */}
-        <div className="d-flex gap-2 align-items-center mb-3">
+        {/* RSVP section */}
+        <div className="d-flex flex-wrap gap-2 align-items-center mb-3">
           {!rsvpAllowed(event) && (
-            <div className="text-muted small me-2">
-              RSVPs are disabled for this event because it is not public.
-            </div>
+            <Badge bg="secondary" className="me-2 p-2">
+              RSVPs disabled (event not public)
+            </Badge>
           )}
 
           {rsvpStatus ? (
             <>
-              <Button variant="outline-success" disabled>
-                RSVP: {rsvpStatus}
-              </Button>
-
-              <Button variant="outline-danger" onClick={cancel} disabled={processing || !rsvpAllowed(event)}>
+              <Badge bg="success" className="p-2">You're {rsvpStatus}</Badge>
+              <Button variant="outline-danger" size="sm" onClick={cancelRsvp} disabled={processing || !rsvpAllowed(event)}>
                 Cancel RSVP
               </Button>
             </>
           ) : (
             <>
-              <Button variant="success" onClick={() => doRsvp('going')} disabled={processing || !rsvpAllowed(event)}>
-                I'm going
+              <Button variant="success" size="sm" onClick={() => doRsvp('going')} disabled={processing || !rsvpAllowed(event)}>
+                <FaCheckCircle className="me-1" /> I'm going
               </Button>
-
-              <Button variant="outline-secondary" onClick={() => doRsvp('interested')} disabled={processing || !rsvpAllowed(event)}>
-                Interested
+              <Button variant="outline-secondary" size="sm" onClick={() => doRsvp('interested')} disabled={processing || !rsvpAllowed(event)}>
+                <FaQuestionCircle className="me-1" /> Interested
               </Button>
             </>
           )}
 
-          <Button variant="outline-secondary" onClick={() => navigator.clipboard?.writeText(window.location.href)} title="Copy event link">Share</Button>
+          <Button variant="outline-secondary" size="sm" onClick={() => navigator.clipboard?.writeText(window.location.href)} title="Copy event link">
+            <FaShareAlt className="me-1" /> Share
+          </Button>
         </div>
 
         {/* RSVP counts */}
         {event.rsvp_counts && (
-          <div className="small text-muted mb-3">
+          <div className="small text-muted mb-3 d-flex gap-3">
             {Object.entries(event.rsvp_counts).map(([k, v]) => (
-              <span key={k} className="me-3">{k}: {v}</span>
+              <span key={k}>
+                <strong>{k}:</strong> {v}
+              </span>
             ))}
           </div>
         )}
