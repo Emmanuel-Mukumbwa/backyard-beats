@@ -4,7 +4,7 @@ const pool = require('../db').pool;
 function isAdminIncludeUnapproved(req) {
   return !!(req.user && req.user.role === 'admin' && req.query.include_unapproved === '1');
 }
- 
+
 async function getUserRow(userId) {
   if (!userId) return null;
   const [rows] = await pool.query('SELECT id, username, banned, deleted_at FROM users WHERE id = ? LIMIT 1', [userId]);
@@ -23,6 +23,13 @@ exports.getUserFavorites = async (req, res, next) => {
 
     const adminOverride = isAdminIncludeUnapproved(req);
 
+    // This query retrieves richer artist info:
+    // - genres & moods via GROUP_CONCAT (converted to arrays later)
+    // - counts (total tracks, approved tracks)
+    // - latest track id/title
+    // - district id/name
+    // - followed_at timestamp from favorites
+    // Note: GROUP BY a.id to aggregate genre/mood lists.
     const sql = `
       SELECT
         a.id,
@@ -32,58 +39,34 @@ exports.getUserFavorites = async (req, res, next) => {
         a.avg_rating,
         a.follower_count,
         a.has_upcoming_event,
+        u.deleted_at AS artist_user_deleted_at,
+        u.banned AS artist_user_banned,
+        u.district_id AS user_district_id,
         d.name AS district,
         (SELECT COUNT(*) FROM tracks t WHERE t.artist_id = a.id) AS track_count,
+        (SELECT COUNT(*) FROM tracks t WHERE t.artist_id = a.id AND t.is_approved = 1 AND t.is_rejected = 0) AS approved_track_count,
+        (SELECT t2.id FROM tracks t2 WHERE t2.artist_id = a.id ORDER BY t2.created_at DESC LIMIT 1) AS latest_track_id,
+        (SELECT t3.title FROM tracks t3 WHERE t3.artist_id = a.id ORDER BY t3.created_at DESC LIMIT 1) AS latest_track_title,
+        GROUP_CONCAT(DISTINCT g.name ORDER BY g.name SEPARATOR ',') AS genre_names,
+        GROUP_CONCAT(DISTINCT mo.name ORDER BY mo.name SEPARATOR ',') AS mood_names,
         f.created_at AS followed_at,
         a.is_approved AS artist_is_approved,
-        a.is_rejected AS artist_is_rejected,
-        u.deleted_at AS artist_user_deleted_at,
-        u.banned AS artist_user_banned
-      FROM favorites f
-      JOIN artists a ON f.artist_id = a.id
-      -- use user's district (users.district_id) rather than a.district_id (not present)
-      LEFT JOIN districts d ON u.district_id = d.id
-      LEFT JOIN users u ON a.user_id = u.id
-      WHERE f.user_id = ?
-      ORDER BY f.created_at DESC
-      LIMIT 200
-    `;
-
-    // Note: query references u in LEFT JOIN districts, so ensure JOIN order is okay for your MySQL version.
-    // Some MySQL versions allow referencing aliases in subsequent LEFT JOIN clauses only if the alias is defined earlier.
-    // To be safest, swap the two LEFT JOIN lines so users are joined before districts:
-    // LEFT JOIN users u ON a.user_id = u.id
-    // LEFT JOIN districts d ON u.district_id = d.id
-
-    // If you prefer, replace the above SQL with the safe-order version:
-    // (I will run the query using the safe-order SQL below to avoid alias-on-clause issues.)
-
-    const safeSql = `
-      SELECT
-        a.id,
-        a.display_name,
-        a.photo_url,
-        a.user_id,
-        a.avg_rating,
-        a.follower_count,
-        a.has_upcoming_event,
-        d.name AS district,
-        (SELECT COUNT(*) FROM tracks t WHERE t.artist_id = a.id) AS track_count,
-        f.created_at AS followed_at,
-        a.is_approved AS artist_is_approved,
-        a.is_rejected AS artist_is_rejected,
-        u.deleted_at AS artist_user_deleted_at,
-        u.banned AS artist_user_banned
+        a.is_rejected AS artist_is_rejected
       FROM favorites f
       JOIN artists a ON f.artist_id = a.id
       LEFT JOIN users u ON a.user_id = u.id
       LEFT JOIN districts d ON u.district_id = d.id
+      LEFT JOIN artist_genres ag ON ag.artist_id = a.id
+      LEFT JOIN genres g ON ag.genre_id = g.id
+      LEFT JOIN artist_moods am ON am.artist_id = a.id
+      LEFT JOIN moods mo ON am.mood_id = mo.id
       WHERE f.user_id = ?
+      GROUP BY a.id
       ORDER BY f.created_at DESC
       LIMIT 200
     `;
 
-    const [rows] = await pool.query(safeSql, [userId]);
+    const [rows] = await pool.query(sql, [userId]);
 
     const result = (rows || []).map(r => {
       // Filter out banned/deleted/unapproved artists for public use unless admin explicitly asked
@@ -92,6 +75,10 @@ exports.getUserFavorites = async (req, res, next) => {
         if (r.artist_user_banned) return null;
         if (!r.artist_is_approved || r.artist_is_rejected) return null;
       }
+
+      const genres = r.genre_names ? String(r.genre_names).split(',').map(s => s.trim()).filter(Boolean) : [];
+      const moods = r.mood_names ? String(r.mood_names).split(',').map(s => s.trim()).filter(Boolean) : [];
+
       return {
         id: r.id,
         display_name: r.display_name,
@@ -101,7 +88,12 @@ exports.getUserFavorites = async (req, res, next) => {
         follower_count: r.follower_count !== null ? Number(r.follower_count) : 0,
         has_upcoming_event: !!r.has_upcoming_event,
         district: r.district || null,
+        district_id: r.user_district_id || null,
         track_count: r.track_count !== null ? Number(r.track_count) : 0,
+        approved_track_count: r.approved_track_count !== null ? Number(r.approved_track_count) : 0,
+        latest_track: r.latest_track_id ? { id: Number(r.latest_track_id), title: r.latest_track_title || null } : null,
+        genres,
+        moods,
         followed_at: r.followed_at ? new Date(r.followed_at).toISOString() : null,
         // admin info
         ...(adminOverride ? {
@@ -111,7 +103,7 @@ exports.getUserFavorites = async (req, res, next) => {
           artist_user_banned: !!r.artist_user_banned
         } : {})
       };
-    }).filter(Boolean); // remove nulls
+    }).filter(Boolean); // remove nulls (filtered-out artists)
 
     return res.json(result);
   } catch (err) {
@@ -217,7 +209,7 @@ exports.checkFavorite = async (req, res, next) => {
       if (artist.user_deleted_at || artist.user_banned || artist.is_rejected || !artist.is_approved) {
         return res.json({ following: false });
       }
-    } 
+    }
 
     const [rows] = await pool.query('SELECT 1 FROM favorites WHERE user_id = ? AND artist_id = ? LIMIT 1', [userId, artistId]);
     return res.json({ following: !!(rows && rows.length) });
