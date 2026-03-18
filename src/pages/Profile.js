@@ -9,7 +9,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 export default function Profile() {
-  const { user: authUser, logout } = useContext(AuthContext);
+  const { user: authUser, artist, logout } = useContext(AuthContext);
   const navigate = useNavigate();
 
   const [user, setUser] = useState(authUser || null);
@@ -28,6 +28,9 @@ export default function Profile() {
   const [pwCurrent, setPwCurrent] = useState('');
   const [pwNew, setPwNew] = useState('');
   const [pwConfirm, setPwConfirm] = useState('');
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [pwProcessing, setPwProcessing] = useState(false);
 
   // confirm modal state (deactivate)
@@ -55,7 +58,6 @@ export default function Profile() {
       }
     } catch (e) {
       // ignore and return empty
-      // console.error('district fetch error', e);
     }
     return '';
   }
@@ -109,16 +111,16 @@ export default function Profile() {
 
   if (loading) return <div className="text-center py-5"><LoadingSpinner size="lg" /></div>;
 
-  // Helper: update localStorage cached user so Navbar shows new name
+  // Helper: update sessionStorage cached user so Navbar shows new name
   function persistLocalUser(updatedUser) {
     try {
-      const existing = JSON.parse(localStorage.getItem('bb_user') || 'null');
+      const existing = JSON.parse(sessionStorage.getItem('bb_user') || 'null');
       const merged = { ...(existing || {}), ...(updatedUser || {}) };
-      localStorage.setItem('bb_user', JSON.stringify(merged));
-      const bbAuth = JSON.parse(localStorage.getItem('bb_auth') || 'null');
+      sessionStorage.setItem('bb_user', JSON.stringify(merged));
+      const bbAuth = JSON.parse(sessionStorage.getItem('bb_auth') || 'null');
       if (bbAuth && bbAuth.user) {
         bbAuth.user = { ...(bbAuth.user || {}), ...(updatedUser || {}) };
-        localStorage.setItem('bb_auth', JSON.stringify(bbAuth));
+        sessionStorage.setItem('bb_auth', JSON.stringify(bbAuth));
       }
     } catch (e) {
       // ignore storage errors
@@ -156,11 +158,17 @@ export default function Profile() {
     }
   }
 
+  // Password strength check: at least 8 chars, contains a number
+  function isPasswordStrong(password) {
+    return password.length >= 8 && /\d/.test(password);
+  }
+
   // Inline change password handler — calls POST /users/me/change-password
   async function handleChangePassword(e) {
     e?.preventDefault();
-    if (pwNew.length < 8) {
-      setToast({ show: true, message: 'New password must be at least 8 characters.', variant: 'danger' });
+    // Password strength check
+    if (!isPasswordStrong(pwNew)) {
+      setToast({ show: true, message: 'New password must be at least 8 characters and contain at least one number.', variant: 'danger' });
       return;
     }
     if (pwNew !== pwConfirm) {
@@ -204,6 +212,9 @@ export default function Profile() {
       setConfirmOpen(false);
     }
   }
+
+  // Determine if artist profile is verified (approved) and artist exists
+  const isArtistVerified = artist && artist.is_approved && user?.role === 'artist';
 
   return (
     <>
@@ -263,6 +274,11 @@ export default function Profile() {
                   {!editingName ? (
                     <Button variant="outline-primary" size="sm" onClick={() => setEditingName(true)}>Edit username</Button>
                   ) : null}
+                  {isArtistVerified && (
+                    <Button variant="outline-success" size="sm" onClick={() => navigate(`/artist/${artist.id}`)}>
+                      View Artist Profile
+                    </Button>
+                  )}
                   <Button variant="outline-danger" size="sm" onClick={() => setConfirmOpen(true)}>Deactivate account</Button>
                 </div>
               </Col>
@@ -280,40 +296,71 @@ export default function Profile() {
               <Form onSubmit={handleChangePassword}>
                 <Form.Group className="mb-2" controlId="currentPassword">
                   <Form.Label className="small text-muted">Current password</Form.Label>
-                  <Form.Control
-                    type="password"
-                    value={pwCurrent}
-                    onChange={(e) => setPwCurrent(e.target.value)}
-                    required
-                    autoComplete="current-password"
-                    disabled={pwProcessing}
-                  />
+                  <InputGroup>
+                    <Form.Control
+                      type={showCurrent ? 'text' : 'password'}
+                      value={pwCurrent}
+                      onChange={(e) => setPwCurrent(e.target.value)}
+                      required
+                      autoComplete="current-password"
+                      disabled={pwProcessing}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline-secondary"
+                      onClick={() => setShowCurrent(!showCurrent)}
+                      aria-label={showCurrent ? 'Hide password' : 'Show password'}
+                    >
+                      {showCurrent ? 'Hide' : 'Show'}
+                    </Button>
+                  </InputGroup>
                 </Form.Group>
 
                 <Form.Group className="mb-2" controlId="newPassword">
                   <Form.Label className="small text-muted">New password</Form.Label>
-                  <Form.Control
-                    type="password"
-                    value={pwNew}
-                    onChange={(e) => setPwNew(e.target.value)}
-                    required
-                    autoComplete="new-password"
-                    minLength={8}
-                    disabled={pwProcessing}
-                  />
-                  <Form.Text className="text-muted">Minimum 8 characters.</Form.Text>
+                  <InputGroup>
+                    <Form.Control
+                      type={showNew ? 'text' : 'password'}
+                      value={pwNew}
+                      onChange={(e) => setPwNew(e.target.value)}
+                      required
+                      autoComplete="new-password"
+                      disabled={pwProcessing}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline-secondary"
+                      onClick={() => setShowNew(!showNew)}
+                      aria-label={showNew ? 'Hide password' : 'Show password'}
+                    >
+                      {showNew ? 'Hide' : 'Show'}
+                    </Button>
+                  </InputGroup>
+                  <Form.Text className="text-muted">
+                    Minimum 8 characters, must include at least one number.
+                  </Form.Text>
                 </Form.Group>
 
                 <Form.Group className="mb-3" controlId="confirmPassword">
                   <Form.Label className="small text-muted">Confirm new password</Form.Label>
-                  <Form.Control
-                    type="password"
-                    value={pwConfirm}
-                    onChange={(e) => setPwConfirm(e.target.value)}
-                    required
-                    minLength={8}
-                    disabled={pwProcessing}
-                  />
+                  <InputGroup>
+                    <Form.Control
+                      type={showConfirm ? 'text' : 'password'}
+                      value={pwConfirm}
+                      onChange={(e) => setPwConfirm(e.target.value)}
+                      required
+                      minLength={8}
+                      disabled={pwProcessing}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline-secondary"
+                      onClick={() => setShowConfirm(!showConfirm)}
+                      aria-label={showConfirm ? 'Hide password' : 'Show password'}
+                    >
+                      {showConfirm ? 'Hide' : 'Show'}
+                    </Button>
+                  </InputGroup>
                 </Form.Group>
 
                 <div className="d-flex gap-2">
