@@ -65,3 +65,61 @@
      background: linear-gradient(to right, rgba(0,0,0,0), rgba(0,0,0,0.85));
    }
 */
+
+/* wrapper + scroll hint */
+.events-table-wrapper {
+  position: relative;
+  padding-bottom: 8px;
+}
+
+.scroll-hint {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(255,255,255,0.95);
+  border-radius: 20px;
+  padding: 6px 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  z-index: 40;
+  font-size: 0.9rem;
+}
+
+.events-table-wrapper.no-hint .scroll-hint { display: none; }
+
+/* mobile card list */
+.events-card-list { }
+.mobile-artwork-fallback {
+  width: 64px;
+  height: 64px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#f1f3f5;
+  color:#6c757d;
+  border-radius:6px;
+}
+
+/* small tweaks for card content */
+.events-card-list .card { border-radius: 12px; }
+.events-card-list .card-body { padding: 12px; }
+
+@media (min-width: 768px) {
+  .events-card-list { display: none; }
+}
+
+@media (max-width: 767.98px) {
+  /* hide table on small screens */
+  .table { display: none !important; }
+}
+
+/* ensure compact layout spacing on small cards */
+.events-card-list .small { font-size: 0.85rem; }
+
+/* improve contrast on small-screen hint text */
+.scroll-hint .hint-text { color: #f1f3f5; }
+
+/* make links/buttons in cards wrap nicely */
+.events-card-list .btn { white-space: nowrap; }
