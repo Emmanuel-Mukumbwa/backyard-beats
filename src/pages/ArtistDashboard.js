@@ -1,5 +1,6 @@
 // src/pages/ArtistDashboard.js
 import React, { useState, useEffect,  useRef, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Tabs,
   Tab,
@@ -11,25 +12,21 @@ import {
   Image,
   Badge,
   Stack
-} from 'react-bootstrap'; 
-import { useNavigate } from 'react-router-dom';
+} from 'react-bootstrap';
 import axios from '../api/axiosConfig';
 import RatingsList from '../components/RatingsList';
 import ToastMessage from '../components/ToastMessage';
 import LoadingSpinner from '../components/LoadingSpinner';
 import AddTrackModal from '../components/AddTrackModal';
 import AddEventModal from '../components/AddEventModal';
-
-// new component imports
 import TracksPanel from '../components/artist/TracksPanel';
 import EventsPanel from '../components/artist/EventsPanel';
-
-// icons
 import { FaMusic, FaCalendarAlt, FaChartLine, FaPlus, FaEdit, FaUserCircle } from 'react-icons/fa';
 
 export default function ArtistDashboard() {
   const navigate = useNavigate();
- 
+  const location = useLocation();
+
   const [artist, setArtist] = useState(null);
   const [tracks, setTracks] = useState([]);
   const [events, setEvents] = useState([]);
@@ -37,47 +34,37 @@ export default function ArtistDashboard() {
   const [metaGenres, setMetaGenres] = useState([]);
   const [metaMoods, setMetaMoods] = useState([]);
 
-  // districts state: list + lookup map
   const [districtsList, setDistrictsList] = useState([]);
   const [districtsMapObj, setDistrictsMapObj] = useState({});
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Modals
   const [showTrackModal, setShowTrackModal] = useState(false);
   const [showEventModal, setShowEventModal] = useState(false);
   const [editingTrack, setEditingTrack] = useState(null);
   const [editingEvent, setEditingEvent] = useState(null);
 
-  // Toast state (re-usable ToastMessage)
   const [toast, setToast] = useState({ show: false, message: '', variant: 'warning', delay: 5000 });
 
-  // Controlled tabs: persist on refresh using hash -> localStorage fallback
   const [activeTab, setActiveTab] = useState('overview');
   const tabHideTimerRef = useRef(null);
 
   useEffect(() => {
-    // initialize active tab from hash or localStorage
     const initFromHash = (window.location.hash || '').replace('#', '');
     const saved = localStorage.getItem('artistDashboard.activeTab');
     const initial = initFromHash || saved || 'overview';
-    // ensure it's a valid tab key (fallback safeguard)
     const allowed = ['overview', 'tracks', 'events', 'analytics'];
     setActiveTab(allowed.includes(initial) ? initial : 'overview');
   }, []);
 
-  // Persist tab selection (hash + localStorage)
   const persistTab = (tabKey) => {
     try {
       localStorage.setItem('artistDashboard.activeTab', tabKey);
-      // update URL hash without adding history entry
       const url = new URL(window.location.href);
       url.hash = `#${tabKey}`;
       window.history.replaceState(null, '', url.toString());
     } catch (e) {
-      // ignore persistence errors
-      // eslint-disable-next-line no-console
       console.debug('persistTab error', e);
     }
   };
@@ -88,7 +75,6 @@ export default function ArtistDashboard() {
     persistTab(k);
   };
 
-  // helper: build backend base
   const backendBase = (() => {
     try {
       return (axios && axios.defaults && axios.defaults.baseURL) || process.env.REACT_APP_API_URL || 'http://localhost:3001';
@@ -105,7 +91,6 @@ export default function ArtistDashboard() {
     return `${backendBase}/uploads/${raw}`;
   };
 
-  // extract event image raw helper (keeps compatibility with different field names)
   const getEventImageRaw = (ev) => {
     if (!ev) return null;
     return ev.image_url || ev.image || ev.cover_url || ev.photo || ev.imagePath || ev.image_path || null;
@@ -115,7 +100,6 @@ export default function ArtistDashboard() {
     return raw ? resolveToBackend(raw) : null;
   };
 
-  // determine artist account status
   function computeArtistStatus(a) {
     if (!a) return 'unknown';
     if (a.user && a.user.deleted_at) return 'deleted';
@@ -125,7 +109,6 @@ export default function ArtistDashboard() {
     return 'approved';
   }
 
-  // friendly label & badge for status
   function statusBadge(status) {
     switch (status) {
       case 'approved': return <Badge bg="success">Approved</Badge>;
@@ -137,7 +120,6 @@ export default function ArtistDashboard() {
     }
   }
 
-  // Convert artist.genres to array of names in flexible ways
   function extractGenreNames(a) {
     if (!a) return [];
     if (Array.isArray(a.genres) && a.genres.length > 0 && typeof a.genres[0] === 'object') {
@@ -174,12 +156,10 @@ export default function ArtistDashboard() {
     return [];
   }
 
-  // load meta, profile, tracks, events, ratings, districts
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      // fetch meta, profile, districts in parallel
       const [gRes, mRes, profileRes, districtsRes] = await Promise.allSettled([
         axios.get('/meta/genres'),
         axios.get('/meta/moods'),
@@ -190,7 +170,6 @@ export default function ArtistDashboard() {
       if (gRes.status === 'fulfilled') setMetaGenres(Array.isArray(gRes.value.data) ? gRes.value.data : []);
       if (mRes.status === 'fulfilled') setMetaMoods(Array.isArray(mRes.value.data) ? mRes.value.data : []);
 
-      // normalize districts
       const dList = (districtsRes.status === 'fulfilled' && Array.isArray(districtsRes.value.data))
         ? districtsRes.value.data.map(d => {
             const id = d.id !== undefined ? String(d.id) : (d.ID !== undefined ? String(d.ID) : '');
@@ -217,10 +196,9 @@ export default function ArtistDashboard() {
       setArtist(artistData);
 
       if (artistData && artistData.id) {
-        // fetch tracks + artist-owned events (includes pending/rejected)
         const [tracksRes, eventsRes] = await Promise.allSettled([
           axios.get('/tracks'),
-          axios.get('/events/my')   // important: use authenticated artist endpoint
+          axios.get('/events/my')
         ]);
 
         setTracks(tracksRes.status === 'fulfilled' && Array.isArray(tracksRes.value.data) ? tracksRes.value.data : []);
@@ -238,19 +216,47 @@ export default function ArtistDashboard() {
         setRatings([]);
       }
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.error('loadDashboardData error', err);
       setError('Failed to load dashboard. Try refreshing the page.');
     } finally {
       setLoading(false);
     }
-  }, []); // stable identity, no external deps needed (setState functions are stable)
+  }, []);
 
   useEffect(() => {
     loadDashboardData();
   }, [loadDashboardData]);
 
-  // helpers for Add Track/Event: check if artist is allowed to create
+  // Show onboarding toast when redirected from onboarding/edit flow (payload must be serializable)
+  useEffect(() => {
+    if (location && location.state && location.state.onboardingToast) {
+      const payload = location.state.onboardingToast;
+      // payload should be plain, serializable: { title?, message, variant?, autohide?, delay? }
+      const message = payload.message || 'Your profile is pending verification.';
+      const variant = payload.variant || 'success';
+      const delay = payload.delay || 10000;
+      const autohide = typeof payload.autohide === 'boolean' ? payload.autohide : false;
+
+      const buildMessage = payload.title ? `${payload.title}\n\n${message}` : message;
+
+      setToast({
+        show: true,
+        message: buildMessage,
+        variant,
+        delay
+      });
+
+      if (tabHideTimerRef.current) clearTimeout(tabHideTimerRef.current);
+      if (autohide) {
+        tabHideTimerRef.current = setTimeout(() => setToast(prev => ({ ...prev, show: false })), delay + 200);
+      }
+
+      // clear navigation state so it doesn't reappear after refresh
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location]);
+
   const artistStatus = computeArtistStatus(artist);
 
   function showRestrictedToast(message, delay = 5000, variant = 'warning') {
@@ -259,7 +265,6 @@ export default function ArtistDashboard() {
     tabHideTimerRef.current = setTimeout(() => setToast(prev => ({ ...prev, show: false })), delay + 200);
   }
 
-  // show success toast helper (centralized)
   function showSuccessToast(message, delay = 3500) {
     setToast({ show: true, message, variant: 'success', delay });
     if (tabHideTimerRef.current) clearTimeout(tabHideTimerRef.current);
@@ -316,16 +321,11 @@ export default function ArtistDashboard() {
     setShowEventModal(true);
   };
 
-  // CRUD handlers still call API
-  // NOTE: onTrackSaved/onEventSaved now accept the saved resource (if provided by the modal)
   const onTrackSaved = (savedData) => {
     const wasEdit = !!editingTrack;
-    // show dashboard-level toast
     showSuccessToast(wasEdit ? 'Track updated successfully' : 'Track added successfully');
-    // switch to tracks tab
     setActiveTab('tracks');
     persistTab('tracks');
-    // reload and close modal
     loadDashboardData();
     setShowTrackModal(false);
     setEditingTrack(null);
@@ -347,7 +347,6 @@ export default function ArtistDashboard() {
       await axios.delete(`/tracks/${id}`);
       showSuccessToast('Track deleted');
       loadDashboardData();
-      // remain on current tab
     } catch (err) {
       showRestrictedToast(err.response?.data?.error || err.message || 'Failed to delete track', 5000, 'danger');
     }
@@ -364,22 +363,15 @@ export default function ArtistDashboard() {
     }
   };
 
-  // ----------------------------------------
-  // recordListen: fire-and-forget analytics ping
-  // ----------------------------------------
   const recordListen = async (track) => {
     try {
-      // fire-and-forget: don't block UI
       axios.post(`/tracks/${track.id}/listen`).catch(() => {});
     } catch (e) {
-      // ignore errors from analytics call
-      // eslint-disable-next-line no-console
       console.debug('recordListen ignored error', e);
     }
   };
 
   useEffect(() => {
-    // cleanup toast hide timer on unmount
     return () => {
       if (tabHideTimerRef.current) clearTimeout(tabHideTimerRef.current);
     };
@@ -389,17 +381,12 @@ export default function ArtistDashboard() {
   if (error) return <Alert variant="danger">{error}</Alert>;
   if (!artist) return <Alert variant="warning">Artist profile not found. <Button size="sm" variant="link" onClick={() => navigate('/onboard')}>Complete onboarding</Button></Alert>;
 
-  // avatar src: prefer stored photo path if present; fallback to ui-avatars
   const photoRaw = artist.photo_url || artist.photo || null;
   const avatarSrc = photoRaw
     ? (photoRaw.startsWith('http') ? photoRaw : resolveToBackend(photoRaw))
     : `https://ui-avatars.com/api/?name=${encodeURIComponent(artist.display_name || artist.username || 'Artist')}&background=0D8ABC&color=fff&size=256`;
 
-  // derived lists
-  const genreNames = (() => {
-    const g = extractGenreNames(artist);
-    return g;
-  })();
+  const genreNames = (() => extractGenreNames(artist))();
   const moodNames = (() => extractMoodNames(artist))();
 
   const tracksCount = tracks.length;
@@ -418,6 +405,7 @@ export default function ArtistDashboard() {
         variant={toast.variant}
         delay={toast.delay}
         position="top-end"
+        autohide={typeof toast.autohide === 'boolean' ? toast.autohide : true}
       />
 
       <div className="d-flex justify-content-between align-items-center mb-3">
@@ -466,7 +454,7 @@ export default function ArtistDashboard() {
                   <Card.Text className="text-muted small">{artist.bio || 'No bio yet — tell fans about your music.'}</Card.Text>
 
                   <div className="d-flex justify-content-center mt-3">
-                    <Button variant="outline-primary" size="sm" onClick={() => navigate(`/artist/${artist.id}`)}>
+                    <Button variant="outline-primary" size="sm" onClick={() => navigate('/onboard')}>
                       <FaEdit className="me-1" /> Edit Profile
                     </Button>
                   </div>
