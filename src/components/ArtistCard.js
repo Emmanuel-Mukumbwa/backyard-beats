@@ -1,4 +1,4 @@
-// src/components/ArtistCard.js
+// File: src/components/ArtistCard.js
 import React, { useEffect, useState, useMemo } from 'react';
 import { Card, Button, Badge } from 'react-bootstrap';
 import { Link } from 'react-router-dom';
@@ -129,7 +129,7 @@ export default function ArtistCard({ artist = {}, selected }) {
   const [hasAudio, setHasAudio] = useState(Boolean(previewSrc));
   useEffect(() => setHasAudio(Boolean(previewSrc)), [previewSrc]);
 
-  // short bio
+  // short bio (kept long here; we'll clamp visually on small screens via CSS)
   const shortBio = bio ? (bio.length > 120 ? bio.slice(0, 117) + '...' : bio) : '';
 
   // Image styles: contain to avoid cropping/zooming, centered with letterbox
@@ -142,23 +142,37 @@ export default function ArtistCard({ artist = {}, selected }) {
   const visibleMoodBadges = moodList.slice(0, 4);
   const extraMoodCount = Math.max(0, moodList.length - visibleMoodBadges.length);
 
+  // main genre for small screens
+  const mainGenre = genreList.length ? genreList[0] : null;
+
   return (
     <>
       <style>{`
         /* responsive tweaks for ArtistCard */
         .artist-card .artist-card-img { height: 180px; }
         @media (max-width: 576px) {
-          .artist-card .artist-card-img { height: 140px; }
-          .artist-card .card-body { padding: .6rem; }
+          .artist-card .artist-card-img { height: 120px; } /* shorten image height on phones */
+          .artist-card .card-body { padding: .5rem; }
           .artist-card .name { font-size: 1rem; }
+          /* hide the full badges block on small screens to save vertical space */
+          .artist-card .badges { display: none !important; }
+          /* show single main genre badge beside status on small screens */
+          .artist-card .main-genre { display: inline-block; margin-left: .5rem; vertical-align: middle; }
+          /* clamp bio to 2 lines */
+          .artist-card .card-text {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+          }
+          .artist-card .followers-district { text-align: left; margin-top: .4rem; font-size: .78rem; }
         }
+        /* desktop keeps full badges */
+        .artist-card .main-genre { display: none; }
         .artist-card .name { font-weight: 600; font-size: 1.05rem; margin-bottom: 0; }
         .artist-card .meta { font-size: .82rem; color: #6c757d; }
         .artist-card .badges { display:flex; flex-wrap:wrap; gap:.25rem .25rem; margin-top:.3rem; }
         .artist-card .followers-district { font-size: .78rem; color: #6c757d; text-align:right; }
-        @media (max-width: 576px) {
-          .artist-card .followers-district { text-align:left; margin-top: .5rem; }
-        }
         .artist-card .audio-preview { width: 100%; max-width: 100%; }
         .artist-card .card-footer-row { gap: .5rem; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; }
       `}</style>
@@ -178,12 +192,22 @@ export default function ArtistCard({ artist = {}, selected }) {
             <div style={{ minWidth: 0 }}>
               <Card.Title className="name">{name}</Card.Title>
               <div className="meta text-truncate" style={{ maxWidth: '100%' }}>
-                {genreList.slice(0, 2).join(', ')}{genreList.length && district ? ' • ' : ''}{district}
+                {/* On md+ show up to two genres and district as before */}
+                <span className="d-none d-md-inline">{genreList.slice(0,2).join(', ')}{genreList.length && district ? ' • ' : ''}</span>
+                <span className="d-none d-md-inline">{district}</span>
+
+                {/* small screens: show main genre and district inline under the name */}
+                <span className="d-inline d-md-none text-muted">
+                  {mainGenre ? `${mainGenre}${district ? ' • ' : ''}` : ''}{district ? district : ''}
+                </span>
               </div>
             </div>
 
             <div className="text-md-end mt-2 mt-md-0" style={{ minWidth: 90 }}>
               {statusBadge(status)}
+              {/* main genre badge shown only on small screens via CSS (.main-genre visible at max-width:576px) */}
+              {mainGenre && <span className="main-genre"><Badge bg="info" text="dark">{mainGenre}</Badge></span>}
+
               <div className="small text-muted mt-1">
                 <FaStar className="me-1 text-warning" />
                 {rating ? Number(rating).toFixed(1) : '—'} ★
@@ -224,7 +248,7 @@ export default function ArtistCard({ artist = {}, selected }) {
                 {typeof followers === 'number' ? `${followers} follower${followers !== 1 ? 's' : ''}` : '—'}
               </div>
               {district ? (
-                <div className="mt-1">
+                <div className="mt-1 d-none d-md-block">
                   <FaMapMarkerAlt className="me-1" />
                   <span>{district}</span>
                 </div>
