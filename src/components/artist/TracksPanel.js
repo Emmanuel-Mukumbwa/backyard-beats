@@ -1,20 +1,23 @@
-// src/components/artist/TracksPanel.js
 import React, { useRef, useState, useEffect, useContext } from 'react';
 import { Table, Button, Image, Badge, Spinner } from 'react-bootstrap';
-import { FaMusic, FaEdit, FaTrash, FaDownload } from 'react-icons/fa';
+import { FaMusic, FaEdit, FaTrash, FaDownload, FaChevronRight } from 'react-icons/fa';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import axios from '../../api/axiosConfig';
 import ConfirmModal from '../ConfirmModal';
 import ToastMessage from '../ToastMessage';
 import { AuthContext } from '../../context/AuthContext';
+import './tracks-panel.css'; // <-- add this CSS file (content provided below)
 
 /**
  * TracksPanel - shows artist-owned tracks with approval status and reason if rejected.
  * - tracks: array of normalized track objects (must include is_approved/is_rejected/rejection_reason)
  * - status: overall artist status (approved/pending/rejected/banned/deleted)
  * - onPlay: optional fn(track) called when a track starts playing (can be used to record listens)
+ *
+ * This file adds a minimal, non-invasive scroll hint overlay + gradient for small screens.
  */
+
 export default function TracksPanel({
   tracks,
   status,
@@ -44,6 +47,11 @@ export default function TracksPanel({
 
   // tickets map: { 'track:123': ticket }
   const [ticketsMap, setTicketsMap] = useState({});
+
+  // wrapper ref and scroll hint state
+  const wrapperRef = useRef(null);
+  const [showHint, setShowHint] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 768 : false));
+  const hideHintTimeoutRef = useRef(null);
 
   useEffect(() => {
     let mounted = true;
@@ -75,6 +83,44 @@ export default function TracksPanel({
     return () => { mounted = false; };
   }, []);
 
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+
+    // if small screen initially, show hint; otherwise don't.
+    function updateHintOnResize() {
+      const isMobile = window.innerWidth < 768;
+      setShowHint(isMobile);
+    }
+
+    // hide hint when user scrolls horizontally in the wrapper
+    function onScroll() {
+      if (!showHint) return;
+      setShowHint(false);
+      if (wrapper.classList) wrapper.classList.add('no-hint');
+      if (hideHintTimeoutRef.current) {
+        clearTimeout(hideHintTimeoutRef.current);
+        hideHintTimeoutRef.current = null;
+      }
+    }
+
+    wrapper.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', updateHintOnResize);
+
+    // auto-hide after 3.5s if user doesn't interact
+    hideHintTimeoutRef.current = setTimeout(() => {
+      setShowHint(false);
+      if (wrapper.classList) wrapper.classList.add('no-hint');
+    }, 3500);
+
+    return () => {
+      wrapper.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', updateHintOnResize);
+      if (hideHintTimeoutRef.current) clearTimeout(hideHintTimeoutRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function openDeleteConfirm(id) {
     setConfirm(prev => ({ ...prev, show: true, id }));
   }
@@ -90,6 +136,7 @@ export default function TracksPanel({
       await onDelete(id);
     } catch (e) {
       console.error('Delete failed', e);
+      setToast({ show: true, message: 'Delete failed', variant: 'danger' });
     } finally {
       closeConfirm();
     }
@@ -273,128 +320,145 @@ export default function TracksPanel({
         delay={3500}
         position="top-end"
       />
+
       <div className="mt-3">
-        <Table striped hover responsive className="mb-3">
-          <thead>
-            <tr>
-              <th style={{ width: 80 }}>Artwork</th>
-              <th>Title & status</th>
-              <th style={{ width: 380 }}>Preview</th>
-              <th style={{ width: 100 }}>Duration</th>
-              <th style={{ width: 200 }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {tracks.map(track => {
-              const itemStatus = track.is_approved ? 'approved' : (track.is_rejected ? 'rejected' : 'pending');
-              const previewRaw = getPreviewRaw(track);
-              const previewUrl = previewRaw ? resolveToBackend(previewRaw) : null;
-              const artworkRaw = getArtworkRaw(track);
-              const artworkUrl = artworkRaw ? resolveToBackend(artworkRaw) : null;
-              const isDownloading = downloadingId === track.id;
+        {/* Scrollable wrapper with gradient overlay + hint */}
+        <div
+          ref={wrapperRef}
+          className={`tracks-table-wrapper ${showHint ? '' : 'no-hint'}`}
+          aria-hidden="false"
+        >
+          {/* Scroll hint - only visible on small screens via CSS media query */}
+          {showHint && (
+            <div className="scroll-hint" role="status" aria-live="polite">
+              <span className="hint-text">Swipe to see actions</span>
+              <FaChevronRight aria-hidden />
+            </div>
+          )}
 
-              const ticketKey = `track:${String(track.id)}`;
-              const ticket = ticketsMap[ticketKey];
-
-              return (
-                <tr key={track.id}>
-                  <td className="align-middle">
-                    {artworkUrl ? (
-                      <Image
-                        src={artworkUrl}
-                        rounded
-                        style={{ width: 64, height: 64, objectFit: 'cover' }}
-                        alt={`${track.title || 'Track'} artwork`}
-                        onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(track.title || 'Track')}&background=ccc&color=333&size=128`; }}
-                      />
-                    ) : (
-                      <div style={{ width: 64, height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f3f5', color: '#6c757d', borderRadius: 6 }}>
-                        <FaMusic />
-                      </div>
-                    )}
-                  </td>
-
-                  <td className="align-middle">
-                    <div><strong className="text-truncate d-block" style={{ maxWidth: 280 }}>{track.title}</strong></div>
-                    <div>
-                      {itemStatus === 'approved' && <Badge bg="success" className="me-2">Approved</Badge>}
-                      {itemStatus === 'pending' && <Badge bg="warning" text="dark" className="me-2">Pending</Badge>}
-                      {itemStatus === 'rejected' && <Badge bg="danger" className="me-2">Rejected</Badge>}
-                      {status !== 'approved' && <small className="text-muted"> ● Visible only to you until profile is approved</small>}
-                    </div>
-                    {track.is_rejected && track.rejection_reason && (
-                      <div className="mt-1"><small className="text-danger">Reason: {track.rejection_reason}</small></div>
-                    )}
-
-                    <div className="mt-1">
-                      {track.is_rejected && ticket && (
-                        <Button size="sm" variant="outline-primary" onClick={() => handleViewTicket(ticket)}>View ticket</Button>
-                      )}
-                      {track.is_rejected && !ticket && (
-                        <Button size="sm" variant="link" onClick={() => openAppealForTrack(track)}>Contact support</Button>
-                      )}
-                    </div>
-                  </td>
-
-                  <td className="align-middle">
-                    {previewUrl ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <audio
-                          controls
-                          controlsList="nodownload"
-                          preload="none"
-                          style={{ width: 320, maxWidth: '100%' }}
-                          src={previewUrl}
-                          onPlay={(e) => handlePlay(e.target, track)}
-                          onPause={(e) => handlePause(e.target)}
-                          onEnded={() => handlePause(null)}
-                        />
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                          <Button
-                            size="sm"
-                            variant="outline-secondary"
-                            onClick={() => handleDownload(track.id)}
-                            disabled={isDownloading}
-                          >
-                            {isDownloading ? <Spinner animation="border" size="sm" /> : <FaDownload />}
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="small text-muted">No preview available</div>
-                    )}
-                  </td>
-
-                  <td className="align-middle">{track.duration ? `${track.duration}s` : '-'}</td>
-
-                  <td className="align-middle">
-                    <div className="d-flex gap-2">
-                      <Button size="sm" variant="outline-primary" onClick={() => onEdit(track)}>
-                        <FaEdit className="me-1" /> Edit
-                      </Button>
-
-                      {track.is_rejected && (
-                        <Button size="sm" variant="outline-warning" onClick={() => openAppealForTrack(track)}>
-                          Appeal
-                        </Button>
-                      )}
-
-                      <Button size="sm" variant="outline-danger" onClick={() => openDeleteConfirm(track.id)}>
-                        <FaTrash className="me-1" /> Delete
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-
-            {tracks.length === 0 && (
+          <Table striped hover responsive className="mb-3">
+            <thead>
               <tr>
-                <td colSpan={5} className="text-center text-muted">No tracks yet — add your first track.</td>
+                <th style={{ width: 80 }}>Artwork</th>
+                <th>Title & status</th>
+                <th style={{ width: 380 }}>Preview</th>
+                <th style={{ width: 100 }}>Duration</th>
+                <th style={{ width: 200 }}>Actions</th>
               </tr>
-            )}
-          </tbody>
-        </Table>
+            </thead>
+            <tbody>
+              {tracks.map(track => {
+                const itemStatus = track.is_approved ? 'approved' : (track.is_rejected ? 'rejected' : 'pending');
+                const previewRaw = getPreviewRaw(track);
+                const previewUrl = previewRaw ? resolveToBackend(previewRaw) : null;
+                const artworkRaw = getArtworkRaw(track);
+                const artworkUrl = artworkRaw ? resolveToBackend(artworkRaw) : null;
+                const isDownloading = downloadingId === track.id;
+
+                const ticketKey = `track:${String(track.id)}`;
+                const ticket = ticketsMap[ticketKey];
+
+                return (
+                  <tr key={track.id}>
+                    <td className="align-middle">
+                      {artworkUrl ? (
+                        <Image
+                          src={artworkUrl}
+                          rounded
+                          style={{ width: 64, height: 64, objectFit: 'cover' }}
+                          alt={`${track.title || 'Track'} artwork`}
+                          onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(track.title || 'Track')}&background=ccc&color=333&size=128`; }}
+                        />
+                      ) : (
+                        <div style={{ width: 64, height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f3f5', color: '#6c757d', borderRadius: 6 }}>
+                          <FaMusic />
+                        </div>
+                      )}
+                    </td>
+
+                    <td className="align-middle">
+                      <div><strong className="text-truncate d-block" style={{ maxWidth: 280 }}>{track.title}</strong></div>
+                      <div>
+                        {itemStatus === 'approved' && <Badge bg="success" className="me-2">Approved</Badge>}
+                        {itemStatus === 'pending' && <Badge bg="warning" text="dark" className="me-2">Pending</Badge>}
+                        {itemStatus === 'rejected' && <Badge bg="danger" className="me-2">Rejected</Badge>}
+                        {status !== 'approved' && <small className="text-muted"> ● Visible only to you until profile is approved</small>}
+                      </div>
+                      {track.is_rejected && track.rejection_reason && (
+                        <div className="mt-1"><small className="text-danger">Reason: {track.rejection_reason}</small></div>
+                      )}
+
+                      <div className="mt-1">
+                        {track.is_rejected && ticket && (
+                          <Button size="sm" variant="outline-primary" onClick={() => handleViewTicket(ticket)}>View ticket</Button>
+                        )}
+                        {track.is_rejected && !ticket && (
+                          <Button size="sm" variant="link" onClick={() => openAppealForTrack(track)}>Contact support</Button>
+                        )}
+                      </div>
+                    </td>
+
+                    <td className="align-middle">
+                      {previewUrl ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <audio
+                            controls
+                            controlsList="nodownload"
+                            preload="none"
+                            style={{ width: 320, maxWidth: '100%' }}
+                            src={previewUrl}
+                            onPlay={(e) => handlePlay(e.target, track)}
+                            onPause={(e) => handlePause(e.target)}
+                            onEnded={() => handlePause(null)}
+                          />
+                          <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <Button
+                              size="sm"
+                              variant="outline-secondary"
+                              onClick={() => handleDownload(track.id)}
+                              disabled={isDownloading}
+                              aria-label={`Download ${track.title || 'track'}`}
+                            >
+                              {isDownloading ? <Spinner animation="border" size="sm" /> : <FaDownload />}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="small text-muted">No preview available</div>
+                      )}
+                    </td>
+
+                    <td className="align-middle">{track.duration ? `${track.duration}s` : '-'}</td>
+
+                    <td className="align-middle">
+                      <div className="d-flex gap-2">
+                        <Button size="sm" variant="outline-primary" onClick={() => onEdit(track)}>
+                          <FaEdit className="me-1" /> Edit
+                        </Button>
+
+                        {track.is_rejected && (
+                          <Button size="sm" variant="outline-warning" onClick={() => openAppealForTrack(track)}>
+                            Appeal
+                          </Button>
+                        )}
+
+                        <Button size="sm" variant="outline-danger" onClick={() => openDeleteConfirm(track.id)}>
+                          <FaTrash className="me-1" /> Delete
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+
+              {tracks.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="text-center text-muted">No tracks yet — add your first track.</td>
+                </tr>
+              )}
+            </tbody>
+          </Table>
+        </div>
 
         <ConfirmModal
           show={confirm.show}
