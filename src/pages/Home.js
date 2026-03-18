@@ -19,9 +19,15 @@ export default function Home() {
   const [total, setTotal] = useState(0);
   const [noMatch, setNoMatch] = useState(false);
 
+  const [myArtistProfileStatus, setMyArtistProfileStatus] = useState(null);
+  const [myArtistProfileReason, setMyArtistProfileReason] = useState(null);
+  const [checkingMyProfile, setCheckingMyProfile] = useState(false);
+
   const unmounted = useRef(false);
   const debounceRef = useRef(null);
   const resizeTimeoutRef = useRef(null);
+
+  const { user } = useContext(AuthContext);
 
   // Responsive columns:
   // md (>=768) -> 3 columns per row
@@ -40,8 +46,6 @@ export default function Home() {
   // LIMIT = number of items per page = columns per row (one row per page)
   const [limit, setLimit] = useState(() => getCols());
 
-  const { user } = useContext(AuthContext);
-
   // update columns on resize (debounced)
   useEffect(() => {
     function onResize() {
@@ -53,6 +57,7 @@ export default function Home() {
         }
       }, 120);
     }
+
     window.addEventListener('resize', onResize);
     return () => {
       window.removeEventListener('resize', onResize);
@@ -62,11 +67,10 @@ export default function Home() {
 
   // when cols change, recalc limit (one row) and reset page to 1
   useEffect(() => {
-    const newLimit = Math.max(1, cols); // one row per page
+    const newLimit = Math.max(1, cols);
     if (newLimit !== limit) {
       setLimit(newLimit);
       setPage(1);
-      // Call load directly with the new limit and page 1 (we pass them explicitly)
       loadArtists({ page: 1, limit: newLimit });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -93,8 +97,10 @@ export default function Home() {
 
     axios.get('/artists', { params })
       .then(res => {
-        // API might return array or { items: [], total: X }
-        const payload = Array.isArray(res.data) ? { items: res.data, total: res.data.length } : (res.data || { items: [], total: 0 });
+        const payload = Array.isArray(res.data)
+          ? { items: res.data, total: res.data.length }
+          : (res.data || { items: [], total: 0 });
+
         const items = payload.items || [];
         const tot = payload.total || 0;
 
@@ -128,9 +134,6 @@ export default function Home() {
       unmounted.current = true;
       clearTimeout(debounceRef.current);
     };
-    // We intentionally depend on `loadArtists` and `limit` so changes to filters/limit
-    // result in a fresh initial load. This will NOT re-run when `page` changes
-    // because `page` is not part of loadArtists' dependencies.
   }, [loadArtists, limit]);
 
   // debounce filters and reset to page 1
@@ -147,6 +150,61 @@ export default function Home() {
   useEffect(() => {
     loadArtists({ page, limit });
   }, [page, limit, loadArtists]);
+
+  // fetch the logged-in artist's own profile status
+  useEffect(() => {
+    const fetchMyProfileStatus = async () => {
+      const isArtist = user?.role === 'artist';
+      const hasProfile = user?.has_profile === true || user?.hasProfile === true;
+
+      if (!isArtist || !hasProfile) {
+        setMyArtistProfileStatus(null);
+        setMyArtistProfileReason(null);
+        return;
+      }
+
+      const artistId =
+        user?.artist_id ||
+        user?.artistId ||
+        user?.profile_id ||
+        user?.artist?.id ||
+        null;
+
+      if (!artistId) {
+        setMyArtistProfileStatus(null);
+        setMyArtistProfileReason(null);
+        return;
+      }
+
+      try {
+        setCheckingMyProfile(true);
+        setMyArtistProfileStatus(null);
+        setMyArtistProfileReason(null);
+
+        const res = await axios.get(`/artists/${artistId}`);
+        if (res.data?.artist) {
+          setMyArtistProfileStatus('approved');
+        }
+      } catch (err) {
+        const data = err?.response?.data || {};
+        if (data.status === 'pending') {
+          setMyArtistProfileStatus('pending');
+          setMyArtistProfileReason(null);
+        } else if (data.status === 'rejected') {
+          setMyArtistProfileStatus('rejected');
+          setMyArtistProfileReason(data.rejection_reason || data.message || null);
+        } else {
+          console.error('Failed to load my artist profile status', err);
+          setMyArtistProfileStatus(null);
+          setMyArtistProfileReason(null);
+        }
+      } finally {
+        setCheckingMyProfile(false);
+      }
+    };
+
+    fetchMyProfileStatus();
+  }, [user]);
 
   function clearAllFilters() {
     setFilters({ district: '', genre: '', mood: '', q: '' });
@@ -185,7 +243,7 @@ export default function Home() {
           </Alert>
         )}
 
-        {user?.role === 'artist' && !artistHasProfile && (
+        {user?.role === 'artist' && !checkingMyProfile && !artistHasProfile && (
           <Alert variant="success" className="d-flex align-items-center justify-content-between">
             <div>
               <strong>Welcome, {user.username || user.displayName || 'artist'}</strong>
@@ -193,6 +251,36 @@ export default function Home() {
             </div>
             <div>
               <Button as={Link} to="/onboard" variant="light">Get started</Button>
+            </div>
+          </Alert>
+        )}
+
+        {user?.role === 'artist' && !checkingMyProfile && artistHasProfile && myArtistProfileStatus === 'pending' && (
+          <Alert variant="warning" className="d-flex align-items-center justify-content-between">
+            <div>
+              <strong>Your artist profile is pending verification</strong>
+              <div className="small">
+                Thanks for submitting your profile. Our team is reviewing it now, and it will become visible once approved.
+              </div>
+            </div>
+            <div>
+              <Button as={Link} to="/onboard" variant="outline-dark">View profile</Button>
+            </div>
+          </Alert>
+        )}
+
+        {user?.role === 'artist' && !checkingMyProfile && artistHasProfile && myArtistProfileStatus === 'rejected' && (
+          <Alert variant="danger" className="d-flex align-items-center justify-content-between">
+            <div>
+              <strong>Your artist profile was not approved</strong>
+              <div className="small">
+                {myArtistProfileReason
+                  ? `Reason: ${myArtistProfileReason}`
+                  : 'Please review the feedback, update your profile, and submit again.'}
+              </div>
+            </div>
+            <div>
+              <Button as={Link} to="/onboard" variant="light">Edit profile</Button>
             </div>
           </Alert>
         )}
@@ -243,9 +331,9 @@ export default function Home() {
                     <Col
                       key={a.id}
                       id={`artist-${a.id}`}
-                      xs={6}   // 2 per row on small
-                      md={4}  // 3 per row on md
-                      lg={3}  // 4 per row on large
+                      xs={6}
+                      md={4}
+                      lg={3}
                       className="mb-4"
                     >
                       <ArtistCard
@@ -260,8 +348,23 @@ export default function Home() {
                 <Col xs={12} className="d-flex justify-content-between align-items-center mt-2">
                   <div />
                   <div>
-                    <Button variant="link" size="sm" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Previous</Button>
-                    <Button variant="primary" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))} className="ms-2">Next</Button>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      disabled={page <= 1}
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={page >= totalPages}
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      className="ms-2"
+                    >
+                      Next
+                    </Button>
                   </div>
                 </Col>
 
