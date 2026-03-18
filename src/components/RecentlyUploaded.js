@@ -1,4 +1,5 @@
-import React, { useRef, useState } from 'react';
+// src/components/RecentlyUploaded.js
+import React, { useRef, useState, useMemo, useCallback, useEffect } from 'react';
 import { ListGroup, Image, Button, Spinner } from 'react-bootstrap';
 import { FaDownload, FaPlus } from 'react-icons/fa';
 import useTracks from '../hooks/useTracks';
@@ -149,8 +150,8 @@ export default function RecentlyUploaded({ limit = 12, onRecordPlay = null }) {
 
   const [toast, setToast] = useState({ show: false, message: '', variant: 'success', title: null, position: 'top-end', delay: 4000 });
   const [downloadingId, setDownloadingId] = useState(null);
-  const showToast = (opts) => setToast(prev => ({ ...prev, ...opts, show: true }));
-  const closeToast = () => setToast(prev => ({ ...prev, show: false }));
+  const showToast = useCallback((opts) => setToast(prev => ({ ...prev, ...opts, show: true })), []);
+  const closeToast = useCallback(() => setToast(prev => ({ ...prev, show: false })), []);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedTrackToAdd, setSelectedTrackToAdd] = useState(null);
@@ -173,11 +174,32 @@ export default function RecentlyUploaded({ limit = 12, onRecordPlay = null }) {
     setShowAddModal(false);
   }
 
-  const handleDownload = (trackId) => {
+  const handleDownload = useCallback((trackId) => {
     setDownloadingId(trackId);
-    setToast({ show: true, message: 'Preparing your download...', variant: 'info' });
+    showToast({ message: 'Preparing your download...', variant: 'info' });
     downloadTrackById(trackId, setToast, setDownloadingId);
-  };
+  }, [showToast]);
+
+  // --- stable client-side pagination: 4 tracks per page ---
+  const perPage = 4;
+  const [page, setPage] = useState(1);
+
+  // clamp page if tracks change
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil((Array.isArray(tracks) ? tracks.length : 0) / perPage));
+    setPage(p => Math.min(p, totalPages));
+  }, [tracks, perPage]);
+
+  const totalPages = useMemo(() => Math.max(1, Math.ceil((Array.isArray(tracks) ? tracks.length : 0) / perPage)), [tracks, perPage]);
+
+  const paginated = useMemo(() => {
+    if (!Array.isArray(tracks)) return [];
+    const start = (page - 1) * perPage;
+    return tracks.slice(start, start + perPage);
+  }, [tracks, page, perPage]);
+
+  const goPrev = useCallback(() => setPage(p => Math.max(1, p - 1)), []);
+  const goNext = useCallback(() => setPage(p => Math.min(totalPages, p + 1)), [totalPages]);
 
   if (loading) return <div className="text-center py-3"><LoadingSpinner /></div>;
   if (error) return <div className="text-muted">Error loading recent uploads: {error}</div>;
@@ -187,7 +209,7 @@ export default function RecentlyUploaded({ limit = 12, onRecordPlay = null }) {
     <div>
       <h6 className="mb-3">New Releases</h6>
       <ListGroup className="mt-0">
-        {tracks.slice(0, limit).map((t, i) => {
+        {paginated.map((t, i) => {
           const artwork = t.artwork_url ? resolveToBackend(t.artwork_url) : `https://ui-avatars.com/api/?name=${encodeURIComponent(t.title || 'Track')}&background=ddd&color=333`;
           const isDownloading = downloadingId === t.id;
           return (
@@ -237,6 +259,19 @@ export default function RecentlyUploaded({ limit = 12, onRecordPlay = null }) {
           );
         })}
       </ListGroup>
+
+      {/* Pagination controls (stable, 4 per page) */}
+      <div className="d-flex justify-content-between align-items-center mt-3">
+        <div className="small text-muted">
+          Showing {(tracks.length === 0) ? 0 : ((page - 1) * perPage + 1)} - {Math.min(page * perPage, tracks.length)} of {tracks.length}
+        </div>
+
+        <div>
+          <Button size="sm" variant="outline-secondary" onClick={goPrev} disabled={page <= 1} className="me-2">Prev</Button>
+          <Button size="sm" variant="light" disabled className="me-2">Page {page} / {totalPages}</Button>
+          <Button size="sm" variant="outline-secondary" onClick={goNext} disabled={page >= totalPages}>Next</Button>
+        </div>
+      </div>
 
       <AddToPlaylistModal show={showAddModal} onHide={() => setShowAddModal(false)} trackId={selectedTrackToAdd} onAdded={handleAddComplete} />
 
