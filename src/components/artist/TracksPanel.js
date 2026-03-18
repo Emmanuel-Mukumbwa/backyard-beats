@@ -1,21 +1,19 @@
 import React, { useRef, useState, useEffect, useContext } from 'react';
-import { Table, Button, Image, Badge, Spinner } from 'react-bootstrap';
-import { FaMusic, FaEdit, FaTrash, FaDownload, FaChevronRight } from 'react-icons/fa';
+import { Table, Button, Image, Badge, Spinner, Card, Row, Col, Dropdown } from 'react-bootstrap';
+import { FaMusic, FaEdit, FaTrash, FaDownload, FaChevronRight, FaEllipsisV } from 'react-icons/fa';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import axios from '../../api/axiosConfig';
 import ConfirmModal from '../ConfirmModal';
 import ToastMessage from '../ToastMessage';
 import { AuthContext } from '../../context/AuthContext';
-import './tracks-panel.css'; // <-- add this CSS file (content provided below)
+import './tracks-panel.css';
 
 /**
  * TracksPanel - shows artist-owned tracks with approval status and reason if rejected.
- * - tracks: array of normalized track objects (must include is_approved/is_rejected/rejection_reason)
- * - status: overall artist status (approved/pending/rejected/banned/deleted)
- * - onPlay: optional fn(track) called when a track starts playing (can be used to record listens)
- *
- * This file adds a minimal, non-invasive scroll hint overlay + gradient for small screens.
+ * - switches to a card/list UI for small screens to avoid horizontal scrolling
+ * - keeps a table UI for larger screens
+ * - preserves previous API behaviour (downloads, appeals, tickets)
  */
 
 export default function TracksPanel({
@@ -53,11 +51,13 @@ export default function TracksPanel({
   const [showHint, setShowHint] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 768 : false));
   const hideHintTimeoutRef = useRef(null);
 
+  // mobile switch (used to render card/list view)
+  const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 768 : false));
+
   useEffect(() => {
     let mounted = true;
     async function loadUserTickets() {
       try {
-        // fetch user's tickets and create a map keyed by target_type:target_id
         const res = await axios.get('/support', { params: { limit: 200 } });
         if (!mounted) return;
         const t = res.data.tickets || [];
@@ -65,7 +65,6 @@ export default function TracksPanel({
         for (const ticket of t) {
           if (ticket.target_type && ticket.target_type !== 'none' && ticket.target_id) {
             const key = `${ticket.target_type}:${String(ticket.target_id)}`;
-            // keep the latest updated ticket if multiple exist (compare updated_at)
             if (!map[key]) map[key] = ticket;
             else {
               const prev = new Date(map[key].updated_at).getTime();
@@ -76,7 +75,7 @@ export default function TracksPanel({
         }
         setTicketsMap(map);
       } catch (e) {
-        // fail silently - ticketsMap can remain empty
+        // fail silently
       }
     }
     loadUserTickets();
@@ -87,13 +86,12 @@ export default function TracksPanel({
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
 
-    // if small screen initially, show hint; otherwise don't.
     function updateHintOnResize() {
-      const isMobile = window.innerWidth < 768;
-      setShowHint(isMobile);
+      const mobile = window.innerWidth < 768;
+      setShowHint(mobile);
+      setIsMobile(mobile);
     }
 
-    // hide hint when user scrolls horizontally in the wrapper
     function onScroll() {
       if (!showHint) return;
       setShowHint(false);
@@ -107,7 +105,6 @@ export default function TracksPanel({
     wrapper.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', updateHintOnResize);
 
-    // auto-hide after 3.5s if user doesn't interact
     hideHintTimeoutRef.current = setTimeout(() => {
       setShowHint(false);
       if (wrapper.classList) wrapper.classList.add('no-hint');
@@ -144,12 +141,12 @@ export default function TracksPanel({
 
   function handlePlay(audioEl, track) {
     if (playingRef.current && playingRef.current !== audioEl) {
-      try { playingRef.current.pause(); } catch (e) { /* ignore */ }
+      try { playingRef.current.pause(); } catch (e) { }
     }
     playingRef.current = audioEl;
 
     if (typeof onPlay === 'function') {
-      try { onPlay(track); } catch (e) { /* don't block UI */ }
+      try { onPlay(track); } catch (e) { }
     }
 
     if (user && user.id && track && track.id) {
@@ -182,14 +179,9 @@ export default function TracksPanel({
       .slice(0, 190);
   }
 
-  /**
-   * Download helper: uses /download/:id endpoint and tries to force filename
-   */
   async function downloadTrack(trackId, setToastCb, setDownloadingCb) {
     try {
-      const res = await axios.get(`/download/${trackId}`, {
-        responseType: 'blob'
-      });
+      const res = await axios.get(`/download/${trackId}`, { responseType: 'blob' });
 
       const disposition = (res.headers && (res.headers['content-disposition'] || res.headers['Content-Disposition'])) || '';
       let filename = null;
@@ -234,11 +226,7 @@ export default function TracksPanel({
       }
 
       let fileToSave;
-      try {
-        fileToSave = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
-      } catch (e) {
-        fileToSave = blob;
-      }
+      try { fileToSave = new File([blob], filename, { type: blob.type || 'application/octet-stream' }); } catch (e) { fileToSave = blob; }
 
       if (window.navigator && window.navigator.msSaveOrOpenBlob) {
         window.navigator.msSaveOrOpenBlob(fileToSave, filename);
@@ -276,9 +264,6 @@ export default function TracksPanel({
     downloadTrack(trackId, setToast, setDownloadingId);
   };
 
-  /**
-   * Open support page with prefilled appeal data for a track.
-   */
   function openAppealForTrack(track) {
     const previewRaw = getPreviewRaw(track);
     const existingFiles = [];
@@ -286,7 +271,7 @@ export default function TracksPanel({
       try {
         const url = resolveToBackend(previewRaw);
         if (url) existingFiles.push({ url, filename: `${(track.title || 'track').replace(/\s+/g, '_')}.mp3` });
-      } catch (e) { /* ignore */ }
+      } catch (e) { }
     }
 
     const subject = `Appeal: ${track.title || 'untitled track'}`;
@@ -310,6 +295,20 @@ export default function TracksPanel({
     navigate(`/support?openTicket=${ticket.id}`);
   }
 
+  // render helpers
+  function renderBadges(track) {
+    const itemStatus = track.is_approved ? 'approved' : (track.is_rejected ? 'rejected' : 'pending');
+    return (
+      <>
+        {itemStatus === 'approved' && <Badge bg="success" className="me-2">Approved</Badge>}
+        {itemStatus === 'pending' && <Badge bg="warning" text="dark" className="me-2">Pending</Badge>}
+        {itemStatus === 'rejected' && <Badge bg="danger" className="me-2">Rejected</Badge>}
+        {status !== 'approved' && <small className="text-muted"> ● Visible only to you until profile is approved</small>}
+      </>
+    );
+  }
+
+  // --- component render ---
   return (
     <>
       <ToastMessage
@@ -322,13 +321,7 @@ export default function TracksPanel({
       />
 
       <div className="mt-3">
-        {/* Scrollable wrapper with gradient overlay + hint */}
-        <div
-          ref={wrapperRef}
-          className={`tracks-table-wrapper ${showHint ? '' : 'no-hint'}`}
-          aria-hidden="false"
-        >
-          {/* Scroll hint - only visible on small screens via CSS media query */}
+        <div ref={wrapperRef} className={`tracks-table-wrapper ${showHint ? '' : 'no-hint'}`} aria-hidden="false">
           {showHint && (
             <div className="scroll-hint" role="status" aria-live="polite">
               <span className="hint-text">Swipe to see actions</span>
@@ -336,19 +329,14 @@ export default function TracksPanel({
             </div>
           )}
 
-          <Table striped hover responsive className="mb-3">
-            <thead>
-              <tr>
-                <th style={{ width: 80 }}>Artwork</th>
-                <th>Title & status</th>
-                <th style={{ width: 380 }}>Preview</th>
-                <th style={{ width: 100 }}>Duration</th>
-                <th style={{ width: 200 }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+          {/* mobile: card/list view */}
+          {isMobile ? (
+            <div className="tracks-card-list">
+              {tracks.length === 0 && (
+                <div className="text-center text-muted py-4">No tracks yet — add your first track.</div>
+              )}
+
               {tracks.map(track => {
-                const itemStatus = track.is_approved ? 'approved' : (track.is_rejected ? 'rejected' : 'pending');
                 const previewRaw = getPreviewRaw(track);
                 const previewUrl = previewRaw ? resolveToBackend(previewRaw) : null;
                 const artworkRaw = getArtworkRaw(track);
@@ -359,105 +347,221 @@ export default function TracksPanel({
                 const ticket = ticketsMap[ticketKey];
 
                 return (
-                  <tr key={track.id}>
-                    <td className="align-middle">
-                      {artworkUrl ? (
-                        <Image
-                          src={artworkUrl}
-                          rounded
-                          style={{ width: 64, height: 64, objectFit: 'cover' }}
-                          alt={`${track.title || 'Track'} artwork`}
-                          onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(track.title || 'Track')}&background=ccc&color=333&size=128`; }}
-                        />
-                      ) : (
-                        <div style={{ width: 64, height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f3f5', color: '#6c757d', borderRadius: 6 }}>
-                          <FaMusic />
-                        </div>
-                      )}
-                    </td>
+                  <Card key={track.id} className="mb-3">
+                    <Card.Body>
+                      <Row className="g-2 align-items-center">
+                        <Col xs={3} className="text-center">
+                          {artworkUrl ? (
+                            <Image
+                              src={artworkUrl}
+                              rounded
+                              style={{ width: 64, height: 64, objectFit: 'cover' }}
+                              alt={`${track.title || 'Track'} artwork`}
+                              onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(track.title || 'Track')}&background=ccc&color=333&size=128`; }}
+                            />
+                          ) : (
+                            <div className="mobile-artwork-fallback"><FaMusic /></div>
+                          )}
+                        </Col>
 
-                    <td className="align-middle">
-                      <div><strong className="text-truncate d-block" style={{ maxWidth: 280 }}>{track.title}</strong></div>
-                      <div>
-                        {itemStatus === 'approved' && <Badge bg="success" className="me-2">Approved</Badge>}
-                        {itemStatus === 'pending' && <Badge bg="warning" text="dark" className="me-2">Pending</Badge>}
-                        {itemStatus === 'rejected' && <Badge bg="danger" className="me-2">Rejected</Badge>}
-                        {status !== 'approved' && <small className="text-muted"> ● Visible only to you until profile is approved</small>}
-                      </div>
-                      {track.is_rejected && track.rejection_reason && (
-                        <div className="mt-1"><small className="text-danger">Reason: {track.rejection_reason}</small></div>
-                      )}
+                        <Col xs={9}>
+                          <div className="d-flex justify-content-between align-items-start">
+                            <div style={{ minWidth: 0 }}>
+                              <strong className="d-block text-truncate">{track.title}</strong>
+                              <div className="small mt-1">{renderBadges(track)}</div>
+                              {track.is_rejected && track.rejection_reason && (
+                                <div className="mt-1"><small className="text-danger">Reason: {track.rejection_reason}</small></div>
+                              )}
+                            </div>
 
-                      <div className="mt-1">
-                        {track.is_rejected && ticket && (
-                          <Button size="sm" variant="outline-primary" onClick={() => handleViewTicket(ticket)}>View ticket</Button>
-                        )}
-                        {track.is_rejected && !ticket && (
-                          <Button size="sm" variant="link" onClick={() => openAppealForTrack(track)}>Contact support</Button>
-                        )}
-                      </div>
-                    </td>
-
-                    <td className="align-middle">
-                      {previewUrl ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <audio
-                            controls
-                            controlsList="nodownload"
-                            preload="none"
-                            style={{ width: 320, maxWidth: '100%' }}
-                            src={previewUrl}
-                            onPlay={(e) => handlePlay(e.target, track)}
-                            onPause={(e) => handlePause(e.target)}
-                            onEnded={() => handlePause(null)}
-                          />
-                          <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <Button
-                              size="sm"
-                              variant="outline-secondary"
-                              onClick={() => handleDownload(track.id)}
-                              disabled={isDownloading}
-                              aria-label={`Download ${track.title || 'track'}`}
-                            >
-                              {isDownloading ? <Spinner animation="border" size="sm" /> : <FaDownload />}
-                            </Button>
+                            <div className="ms-2 text-end">
+                              <Dropdown align="end">
+                                <Dropdown.Toggle variant="light" size="sm" aria-label={`More actions for ${track.title}`}>
+                                  <FaEllipsisV />
+                                </Dropdown.Toggle>
+                                <Dropdown.Menu>
+                                  <Dropdown.Item onClick={() => onEdit(track)} aria-label={`Edit ${track.title}`}>
+                                    <FaEdit className="me-2" /> Edit
+                                  </Dropdown.Item>
+                                  {track.is_rejected && (
+                                    <Dropdown.Item onClick={() => openAppealForTrack(track)} aria-label={`Appeal ${track.title}`}>
+                                      Appeal
+                                    </Dropdown.Item>
+                                  )}
+                                  <Dropdown.Item onClick={() => openDeleteConfirm(track.id)} aria-label={`Delete ${track.title}`}>
+                                    <FaTrash className="me-2" /> Delete
+                                  </Dropdown.Item>
+                                </Dropdown.Menu>
+                              </Dropdown>
+                            </div>
                           </div>
-                        </div>
-                      ) : (
-                        <div className="small text-muted">No preview available</div>
-                      )}
-                    </td>
 
-                    <td className="align-middle">{track.duration ? `${track.duration}s` : '-'}</td>
+                          <div className="mt-2 d-flex align-items-center justify-content-between">
+                            <div style={{ width: '62%' }}>
+                              {previewUrl ? (
+                                <audio
+                                  controls
+                                  controlsList="nodownload"
+                                  preload="none"
+                                  style={{ width: '100%' }}
+                                  src={previewUrl}
+                                  onPlay={(e) => handlePlay(e.target, track)}
+                                  onPause={(e) => handlePause(e.target)}
+                                  onEnded={() => handlePause(null)}
+                                />
+                              ) : (
+                                <div className="small text-muted">No preview available</div>
+                              )}
+                            </div>
 
-                    <td className="align-middle">
-                      <div className="d-flex gap-2">
-                        <Button size="sm" variant="outline-primary" onClick={() => onEdit(track)}>
-                          <FaEdit className="me-1" /> Edit
-                        </Button>
+                            <div className="ms-2 d-flex gap-2 align-items-center">
+                              <Button size="sm" variant="outline-secondary" onClick={() => handleDownload(track.id)} disabled={isDownloading} aria-label={`Download ${track.title}`}>
+                                {isDownloading ? <Spinner animation="border" size="sm" /> : <FaDownload />}
+                              </Button>
 
-                        {track.is_rejected && (
-                          <Button size="sm" variant="outline-warning" onClick={() => openAppealForTrack(track)}>
-                            Appeal
-                          </Button>
-                        )}
+                              {track.is_rejected && ticket && (
+                                <Button size="sm" variant="outline-primary" onClick={() => handleViewTicket(ticket)} aria-label={`View ticket for ${track.title}`}>
+                                  View ticket
+                                </Button>
+                              )}
 
-                        <Button size="sm" variant="outline-danger" onClick={() => openDeleteConfirm(track.id)}>
-                          <FaTrash className="me-1" /> Delete
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
+                              {track.is_rejected && !ticket && (
+                                <Button size="sm" variant="link" onClick={() => openAppealForTrack(track)} aria-label={`Contact support about ${track.title}`}>
+                                  Contact support
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+
+                        </Col>
+                      </Row>
+                    </Card.Body>
+                  </Card>
                 );
               })}
-
-              {tracks.length === 0 && (
+            </div>
+          ) : (
+            /* desktop: table view (keeps original behaviour) */
+            <Table striped hover responsive className="mb-3">
+              <thead>
                 <tr>
-                  <td colSpan={5} className="text-center text-muted">No tracks yet — add your first track.</td>
+                  <th style={{ width: 80 }}>Artwork</th>
+                  <th>Title & status</th>
+                  <th style={{ width: 380 }}>Preview</th>
+                  <th style={{ width: 100 }}>Duration</th>
+                  <th style={{ width: 200 }}>Actions</th>
                 </tr>
-              )}
-            </tbody>
-          </Table>
+              </thead>
+              <tbody>
+                {tracks.map(track => {
+                  const previewRaw = getPreviewRaw(track);
+                  const previewUrl = previewRaw ? resolveToBackend(previewRaw) : null;
+                  const artworkRaw = getArtworkRaw(track);
+                  const artworkUrl = artworkRaw ? resolveToBackend(artworkRaw) : null;
+                  const isDownloading = downloadingId === track.id;
+
+                  const ticketKey = `track:${String(track.id)}`;
+                  const ticket = ticketsMap[ticketKey];
+
+                  return (
+                    <tr key={track.id}>
+                      <td className="align-middle">
+                        {artworkUrl ? (
+                          <Image
+                            src={artworkUrl}
+                            rounded
+                            style={{ width: 64, height: 64, objectFit: 'cover' }}
+                            alt={`${track.title || 'Track'} artwork`}
+                            onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(track.title || 'Track')}&background=ccc&color=333&size=128`; }}
+                          />
+                        ) : (
+                          <div style={{ width: 64, height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f3f5', color: '#6c757d', borderRadius: 6 }}>
+                            <FaMusic />
+                          </div>
+                        )}
+                      </td>
+
+                      <td className="align-middle">
+                        <div><strong className="text-truncate d-block" style={{ maxWidth: 280 }}>{track.title}</strong></div>
+                        <div>
+                          {renderBadges(track)}
+                        </div>
+                        {track.is_rejected && track.rejection_reason && (
+                          <div className="mt-1"><small className="text-danger">Reason: {track.rejection_reason}</small></div>
+                        )}
+
+                        <div className="mt-1">
+                          {track.is_rejected && ticket && (
+                            <Button size="sm" variant="outline-primary" onClick={() => handleViewTicket(ticket)}>View ticket</Button>
+                          )}
+                          {track.is_rejected && !ticket && (
+                            <Button size="sm" variant="link" onClick={() => openAppealForTrack(track)}>Contact support</Button>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="align-middle">
+                        {previewUrl ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <audio
+                              controls
+                              controlsList="nodownload"
+                              preload="none"
+                              style={{ width: 320, maxWidth: '100%' }}
+                              src={previewUrl}
+                              onPlay={(e) => handlePlay(e.target, track)}
+                              onPause={(e) => handlePause(e.target)}
+                              onEnded={() => handlePause(null)}
+                            />
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                              <Button
+                                size="sm"
+                                variant="outline-secondary"
+                                onClick={() => handleDownload(track.id)}
+                                disabled={isDownloading}
+                                aria-label={`Download ${track.title || 'track'}`}
+                              >
+                                {isDownloading ? <Spinner animation="border" size="sm" /> : <FaDownload />}
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="small text-muted">No preview available</div>
+                        )}
+                      </td>
+
+                      <td className="align-middle">{track.duration ? `${track.duration}s` : '-'}</td>
+
+                      <td className="align-middle">
+                        <div className="d-flex gap-2">
+                          <Button size="sm" variant="outline-primary" onClick={() => onEdit(track)}>
+                            <FaEdit className="me-1" /> Edit
+                          </Button>
+
+                          {track.is_rejected && (
+                            <Button size="sm" variant="outline-warning" onClick={() => openAppealForTrack(track)}>
+                              Appeal
+                            </Button>
+                          )}
+
+                          <Button size="sm" variant="outline-danger" onClick={() => openDeleteConfirm(track.id)}>
+                            <FaTrash className="me-1" /> Delete
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {tracks.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="text-center text-muted">No tracks yet — add your first track.</td>
+                  </tr>
+                )}
+              </tbody>
+            </Table>
+          )}
+
         </div>
 
         <ConfirmModal
