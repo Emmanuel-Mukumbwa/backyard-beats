@@ -59,7 +59,7 @@ function ScrollingTitle({ text, className = '', threshold = 28 }) {
   }, [measure]);
 
   useEffect(() => {
-    if (!viewportRef.current) return;
+    if (!viewportRef.current || typeof ResizeObserver === 'undefined') return;
 
     const ro = new ResizeObserver(() => measure());
     ro.observe(viewportRef.current);
@@ -411,8 +411,13 @@ export default function BrowseMusic() {
           display: block;
         }
 
+        /* key fix: allow the scrolling state to reveal the hidden letters */
         .browse-title-text.is-scrolling {
+          display: block;
           width: max-content;
+          max-width: none;
+          overflow: visible;
+          text-overflow: clip;
           will-change: transform;
           animation: browse-title-scroll 14s linear infinite;
         }
