@@ -1,6 +1,22 @@
 // File: src/pages/FanDashboard.js
-import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
-import { Tabs, Tab, ListGroup, Alert, Image, Button } from 'react-bootstrap';
+import React, {
+  useState,
+  useEffect,
+  useContext,
+  useRef,
+  useCallback,
+  useMemo
+} from 'react';
+import {
+  Tabs,
+  Tab,
+  ListGroup,
+  Alert,
+  Image,
+  Button,
+  Card,
+  Badge
+} from 'react-bootstrap';
 import { useLocation, useNavigate } from 'react-router-dom';
 import axios from '../api/axiosConfig';
 
@@ -12,6 +28,34 @@ import PlaylistsList from '../components/PlaylistsList';
 import ToastMessage from '../components/ToastMessage';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { AuthContext } from '../context/AuthContext';
+
+function useMediaQuery(query) {
+  const getMatches = () => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false;
+    return window.matchMedia(query).matches;
+  };
+
+  const [matches, setMatches] = useState(getMatches);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+
+    const mediaQueryList = window.matchMedia(query);
+    const onChange = (event) => setMatches(event.matches);
+
+    setMatches(mediaQueryList.matches);
+
+    if (mediaQueryList.addEventListener) {
+      mediaQueryList.addEventListener('change', onChange);
+      return () => mediaQueryList.removeEventListener('change', onChange);
+    }
+
+    mediaQueryList.addListener(onChange);
+    return () => mediaQueryList.removeListener(onChange);
+  }, [query]);
+
+  return matches;
+}
 
 export default function FanDashboard() {
   const navigate = useNavigate();
@@ -27,20 +71,17 @@ export default function FanDashboard() {
   // single-play controller
   const playingRef = useRef(null);
 
-  // toast state + timer ref
+  // toast state
   const [toast, setToast] = useState({
     show: false,
     message: '',
     variant: 'success',
     delay: 3500,
-    autohide: true,
+    autohide: true
   });
-  const tabHideTimerRef = useRef(null);
 
-  // responsive: switch to pills on small screens (≤576px)
-  const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 576 : false));
+  const isMobile = useMediaQuery('(max-width: 575.98px)');
 
-  // resolve uploads (robust, similar to ArtistDashboard)
   const resolveToBackend = useCallback((raw) => {
     if (!raw) return '';
     if (/^https?:\/\//i.test(raw)) return raw;
@@ -50,37 +91,16 @@ export default function FanDashboard() {
       process.env.REACT_APP_API_URL ||
       window.location.origin;
 
-    // ensure leading slash then join
     const rel = raw.startsWith('/') ? raw : `/${raw}`;
     return `${String(base).replace(/\/$/, '')}${rel}`;
   }, []);
 
-  useEffect(() => {
-    function handleResize() {
-      setIsMobile(window.innerWidth <= 576);
-    }
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  const showToast = (message, variant = 'success', delay = 3500, autohide = true) => {
-    if (tabHideTimerRef.current) clearTimeout(tabHideTimerRef.current);
-    setToast({ show: true, message, variant, delay, autohide });
-    if (autohide) {
-      tabHideTimerRef.current = setTimeout(() => {
-        setToast(prev => ({ ...prev, show: false }));
-      }, delay + 200);
-    }
-  };
-
-  // load dashboard data (memoized)
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
       const listensRes = await axios.get('/fan/listens').catch(() => ({ data: [] }));
-
       const listens = Array.isArray(listensRes.data) ? listensRes.data : [];
 
       const map = new Map();
@@ -95,7 +115,6 @@ export default function FanDashboard() {
 
         const artworkRaw = track.artwork_url || track.artworkUrl || null;
         const previewRaw = track.preview_url || track.previewUrl || null;
-
         const playedAt = l.played_at ? new Date(l.played_at).toISOString() : null;
 
         const existing = map.get(key);
@@ -137,7 +156,6 @@ export default function FanDashboard() {
     }
   }, [resolveToBackend]);
 
-  // INITIAL LOAD & tab bootstrapping (persist to URL + localStorage)
   useEffect(() => {
     const stateTab = location.state && location.state.tab ? String(location.state.tab) : '';
     const params = new URLSearchParams(location.search);
@@ -145,23 +163,20 @@ export default function FanDashboard() {
     const saved = localStorage.getItem('fanDashboard.activeTab');
 
     const initial = stateTab || searchTab || saved || 'favorites';
-
     const allowed = ['favorites', 'recent', 'new', 'events', 'ratings', 'playlists'];
 
     setActiveTab(allowed.includes(initial) ? initial : 'favorites');
-
     loadDashboardData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadDashboardData, location.search, location.state]);
 
-  // Persist tab helper
   const persistTab = useCallback((tabKey) => {
     try {
       localStorage.setItem('fanDashboard.activeTab', tabKey);
       const url = new URL(window.location.href);
       url.searchParams.set('tab', tabKey);
       window.history.replaceState(null, '', url.toString());
-    } catch (e) {
+    } catch {
       // non-fatal
     }
   }, []);
@@ -173,19 +188,23 @@ export default function FanDashboard() {
   };
 
   // audio play management (single-play)
-  function handlePlay(audioEl) {
+  const handlePlay = (audioEl) => {
     if (!audioEl) return;
     if (playingRef.current && playingRef.current !== audioEl) {
       try {
         playingRef.current.pause();
-      } catch {}
+      } catch {
+        // ignore
+      }
     }
     playingRef.current = audioEl;
-  }
+  };
 
-  function handlePause(audioEl) {
-    if (playingRef.current === audioEl) playingRef.current = null;
-  }
+  const clearPlayingRef = (audioEl) => {
+    if (!audioEl || playingRef.current === audioEl) {
+      playingRef.current = null;
+    }
+  };
 
   const handleRecordPlay = async (track) => {
     if (!user || !user.id || !track) return;
@@ -200,29 +219,182 @@ export default function FanDashboard() {
         track_id: track.id,
         artist_id: track.artist_id || null
       });
-      // Do NOT refresh the dashboard – it would interrupt playback
     } catch {
       console.warn('Could not record play');
     }
   };
 
-  // cleanup timer on unmount
   useEffect(() => {
     return () => {
-      if (tabHideTimerRef.current) clearTimeout(tabHideTimerRef.current);
-      // pause any playing audio
       try {
         if (playingRef.current) playingRef.current.pause();
-      } catch {}
+      } catch {
+        // ignore
+      }
+      playingRef.current = null;
     };
   }, []);
 
-  if (loading)
+  const recentCount = useMemo(() => recentTracks.length, [recentTracks]);
+
+  const RecentTrackDesktopItem = ({ t, i }) => (
+    <ListGroup.Item
+      key={`${t.id || 'noid'}-${i}`}
+      className="d-flex justify-content-between align-items-center recent-list-item"
+    >
+      <div className="d-flex align-items-center" style={{ flex: 1, minWidth: 0 }}>
+        {t.artwork_url ? (
+          <Image
+            src={t.artwork_url}
+            rounded
+            className="recent-track-art"
+            alt={`${t.title} artwork`}
+            onError={(e) => {
+              e.currentTarget.onerror = null;
+              e.currentTarget.src = resolveToBackend('/defaults/track-art.png');
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              width: 48,
+              height: 48,
+              background: '#eee',
+              borderRadius: 6,
+              marginRight: 12,
+              flex: '0 0 auto'
+            }}
+          />
+        )}
+
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              fontWeight: 600,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {t.title}
+          </div>
+          <div
+            className="small text-muted"
+            style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {t.artist_name || '-'}
+          </div>
+
+          {t.preview_url && (
+            <div className="mt-2">
+              <audio
+                controls
+                controlsList="nodownload"
+                preload="none"
+                className="recent-audio-control"
+                src={t.preview_url}
+                onPlay={(e) => {
+                  handlePlay(e.target);
+                  handleRecordPlay(t);
+                }}
+                onPause={(e) => clearPlayingRef(e.target)}
+                onEnded={(e) => clearPlayingRef(e.target)}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="small text-muted ms-3" style={{ whiteSpace: 'nowrap' }}>
+        {t.duration ? `${t.duration}s` : '-'}
+      </div>
+    </ListGroup.Item>
+  );
+
+  const RecentTrackMobileCard = ({ t, i }) => (
+    <Card key={`${t.id || 'noid'}-${i}`} className="shadow-sm border-0 mb-3 recent-track-card">
+      <Card.Body className="p-3">
+        <div className="d-flex align-items-start gap-3">
+          {t.artwork_url ? (
+            <Image
+              src={t.artwork_url}
+              rounded
+              className="recent-track-art recent-track-art-mobile"
+              alt={`${t.title} artwork`}
+              onError={(e) => {
+                e.currentTarget.onerror = null;
+                e.currentTarget.src = resolveToBackend('/defaults/track-art.png');
+              }}
+            />
+          ) : (
+            <div
+              className="recent-track-art-mobile"
+              style={{
+                width: 52,
+                height: 52,
+                background: '#eee',
+                borderRadius: 8,
+                flex: '0 0 auto'
+              }}
+            />
+          )}
+
+          <div className="flex-grow-1" style={{ minWidth: 0 }}>
+            <div
+              className="fw-semibold"
+              style={{
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {t.title}
+            </div>
+            <div className="small text-muted mb-2">
+              {t.artist_name || '-'}
+            </div>
+
+            <div className="d-flex align-items-center justify-content-between mb-2">
+              <Badge bg="secondary" className="text-truncate">
+                {t.duration ? `${t.duration}s` : 'No duration'}
+              </Badge>
+              <div className="small text-muted ms-2">
+                {t.plays > 1 ? `${t.plays} plays` : '1 play'}
+              </div>
+            </div>
+
+            {t.preview_url && (
+              <audio
+                controls
+                controlsList="nodownload"
+                preload="none"
+                className="w-100 recent-audio-control recent-audio-control-mobile"
+                src={t.preview_url}
+                onPlay={(e) => {
+                  handlePlay(e.target);
+                  handleRecordPlay(t);
+                }}
+                onPause={(e) => clearPlayingRef(e.target)}
+                onEnded={(e) => clearPlayingRef(e.target)}
+              />
+            )}
+          </div>
+        </div>
+      </Card.Body>
+    </Card>
+  );
+
+  if (loading) {
     return (
       <div className="text-center py-5">
         <LoadingSpinner size="lg" />
       </div>
     );
+  }
 
   if (error) return <Alert variant="danger">{error}</Alert>;
 
@@ -239,7 +411,6 @@ export default function FanDashboard() {
       />
 
       <style>{`
-        /* Responsive tweaks for Fan Dashboard */
         .recent-track-art {
           width: 48px;
           height: 48px;
@@ -248,49 +419,70 @@ export default function FanDashboard() {
           margin-right: 12px;
         }
 
+        .recent-audio-control {
+          width: min(220px, 100%);
+        }
+
+        .fan-tabs .nav-link {
+          white-space: nowrap;
+        }
+
         @media (max-width: 575.98px) {
-          .recent-track-art { width: 44px; height: 44px; margin-right: 10px; }
-          .recent-audio-control { width: 100% !important; max-width: 100% !important; }
-          .recent-list-item { padding-left: 8px; padding-right: 8px; }
-        }
+          .recent-track-art {
+            width: 52px;
+            height: 52px;
+            margin-right: 0;
+          }
 
-        /* audio control width: limit to 220px on wide screens, but responsive */
-        .recent-audio-control { width: min(220px, 100%); }
-        
-        /* Mobile FAB */
-        .fan-fab {
-          position: fixed;
-          right: 16px;
-          bottom: 20px;
-          z-index: 1060;
-          display: none;
-        }
-        @media (max-width: 767.98px) {
-          .fan-fab { display: block; }
-        }
+          .recent-audio-control-mobile {
+            max-width: 100% !important;
+          }
 
-        /* when we render nav-pills on mobile make them a little more compact */
-        @media (max-width: 576px) {
-          .nav-pills .nav-link {
-            padding: .35rem .6rem;
-            font-size: .92rem;
+          .fan-header {
+            flex-direction: column;
+            align-items: stretch !important;
+          }
+
+          .fan-header-actions {
+            width: 100%;
+          }
+
+          .fan-header-actions .btn {
+            width: 100%;
+          }
+
+          .fan-tabs .nav-link {
+            padding: .45rem .7rem;
+            font-size: .9rem;
             border-radius: 999px;
+          }
+
+          .fan-tabs .nav {
+            gap: .35rem;
+          }
+        }
+
+        @media (min-width: 576px) {
+          .fan-header-actions {
+            margin-left: auto;
           }
         }
       `}</style>
 
-      <div className="d-flex justify-content-between align-items-center mb-3">
+      <div className="d-flex justify-content-between align-items-center gap-3 mb-3 fan-header">
         <div>
           <h2 className="mb-0">Fan Dashboard</h2>
           <div className="text-muted small">Your recent plays, favourites and playlists</div>
         </div>
 
-        <div className="d-flex align-items-center">
-          <Button variant="outline-secondary" size="sm" onClick={() => navigate('/')} className="me-2">
+        <div className="d-flex align-items-center gap-2 fan-header-actions">
+          <Button
+            variant="outline-secondary"
+            size="sm"
+            onClick={() => navigate('/')}
+            className="w-100 w-sm-auto"
+          >
             Back to Home
-          </Button>
-          <Button variant="primary" size="sm" onClick={() => showToast('Feature coming soon: shuffle across recent plays', 'info', 2500)}>
-            Shuffle
           </Button>
         </div>
       </div>
@@ -299,11 +491,10 @@ export default function FanDashboard() {
         activeKey={activeTab}
         onSelect={handleTabSelect}
         mountOnEnter
-        unmountOnExit
         variant={isMobile ? 'pills' : undefined}
         fill={isMobile}
         justify={isMobile}
-        className="mb-3"
+        className="mb-3 fan-tabs"
       >
         <Tab eventKey="favorites" title="Favorite Artists">
           <div className="mt-3">
@@ -311,63 +502,36 @@ export default function FanDashboard() {
           </div>
         </Tab>
 
-        <Tab eventKey="recent" title="Recently Played">
+        <Tab
+          eventKey="recent"
+          title={
+            <span>
+              Recently Played{' '}
+              <Badge bg="secondary" className="ms-2">
+                {recentCount}
+              </Badge>
+            </span>
+          }
+        >
           <div className="mt-3">
             {recentTracks.length > 0 ? (
-              <ListGroup>
-                {recentTracks.slice(0, 12).map((t, i) => (
-                  <ListGroup.Item key={`${t.id || 'noid'}-${i}`} className="d-flex justify-content-between align-items-center recent-list-item">
-                    <div className="d-flex align-items-center" style={{ flex: 1, minWidth: 0 }}>
-                      {t.artwork_url ? (
-                        <Image
-                          src={t.artwork_url}
-                          rounded
-                          className="recent-track-art"
-                          alt={`${t.title} artwork`}
-                          onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = resolveToBackend('/defaults/track-art.png'); }}
-                        />
-                      ) : (
-                        <div
-                          style={{
-                            width: 48,
-                            height: 48,
-                            background: '#eee',
-                            borderRadius: 6,
-                            marginRight: 12
-                          }}
-                        />
-                      )}
+              <>
+                <div className="d-none d-md-block">
+                  <ListGroup>
+                    {recentTracks.slice(0, 12).map((t, i) => (
+                      <RecentTrackDesktopItem key={`${t.id || 'noid'}-${i}`} t={t} i={i} />
+                    ))}
+                  </ListGroup>
+                </div>
 
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
-                        <div className="small text-muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.artist_name || '-'}</div>
-
-                        {t.preview_url && (
-                          <div className="mt-2">
-                            <audio
-                              controls
-                              controlsList="nodownload"
-                              preload="none"
-                              className="recent-audio-control"
-                              src={t.preview_url}
-                              onPlay={(e) => {
-                                handlePlay(e.target);
-                                handleRecordPlay(t);
-                              }}
-                              onPause={(e) => handlePause(e.target)}
-                              onEnded={() => handlePause(null)}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="small text-muted ms-3" style={{ whiteSpace: 'nowrap' }}>{t.duration ? `${t.duration}s` : '-'}</div>
-                  </ListGroup.Item>
-                ))}
-              </ListGroup>
+                <div className="d-md-none">
+                  {recentTracks.slice(0, 12).map((t, i) => (
+                    <RecentTrackMobileCard key={`${t.id || 'noid'}-${i}`} t={t} i={i} />
+                  ))}
+                </div>
+              </>
             ) : (
-              <p>No recently played tracks.</p>
+              <p className="text-muted">No recently played tracks.</p>
             )}
           </div>
         </Tab>
@@ -396,23 +560,6 @@ export default function FanDashboard() {
           </div>
         </Tab>
       </Tabs>
-
-      {/* Mobile FAB quick action - opens Recently Played */}
-      <div className="fan-fab">
-        <Button
-          variant="success"
-          className="rounded-circle shadow-lg"
-          style={{ width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={() => {
-            setActiveTab('recent');
-            persistTab('recent');
-          }}
-          aria-label="Open recently played"
-          title="Recently played"
-        >
-          ▶
-        </Button>
-      </div>
     </div>
   );
 }
